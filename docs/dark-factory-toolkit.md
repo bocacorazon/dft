@@ -18,12 +18,11 @@ In this phase I will need a set of agents to:
 * since not all demand packages will require the same level of structure to the dev process, a 'lane selector' that will assign different workflows to a particular demand package ('spec', 'streamlined', 'recursive', etc.) 
 ## orchestration
 In this phase we conduct the actual construction of the requested artifacts. 
-This should be a set of 'flows', a DAG of 'steps'. Here's a first draft of the [dsl](docs/flow-dsl.yaml).
+This should be a set of 'flows', a DAG of 'steps'. Here's a first draft of the [dsl](docs/flow-dsl.yaml). As I assume that the execution engine will be an actual program, not a chat or a copilot session, for example, when I say 'Agent' I mean an invocation of the llm via a cli -like copilot. Perhaps we should also allow flows to be run entirely inside a chat session?
 
 My vision is that when a wbs is submitted to the orchestation layer, it will start two parallel threads:
 - Build thread, that will execute the flow steps specific to this WBS
 - an Eval thread with an *adversarial* relationship to the Build, that will generate all sort of ways to evaluate Build's output using different strategies
-
 ### flow execution
 We should have a pluggable flow execution engine. For example:
 -  a local one, where work parallelism is handled by different threads, 
@@ -32,4 +31,10 @@ We should have a pluggable flow execution engine. For example:
 - a GH Actions based one
 - etc.
 I only want to focus on the local one for now.
+I would like that from the beginning, we make the LLM models to use on the flows to be configurable, override-able by the orchestrator.
 
+ My goal for the initial session is to discuss different approaches to addressing the problem, and creating an overall design document under docs/foundation to start the development process.
+I would like you to review the current best practices in agent harness, product offerings, etc. to draw inspiration, not reinvent the wheel.
+As I describe my desired program, cannot help but notice that many of the features coincide with OpenClaw or Hermes. Please evaluate them for their design. Recommend a design based on those tools if you think they are a good fit.
+
+I would like a socratic-type discussion to work on this problem.
