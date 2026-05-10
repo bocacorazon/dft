@@ -4,7 +4,7 @@
 
 This plan begins after the design discussion, not before it. It is intentionally organized around decision gates and reversible implementation slices so the project does not prematurely commit to a runtime stack, framework, or storage substrate.
 
-The plan assumes the current working direction from [docs/foundation/design-discussion.md](design-discussion.md): deterministic orchestration, artifact-based phase boundaries, early adversarial eval planning, and local-first execution. Those are still design commitments, not language or framework commitments.
+The plan assumes the current working direction from [docs/foundation/product-design.md](product-design.md) and [docs/foundation/design-discussion.md](design-discussion.md): deterministic orchestration, artifact-based phase boundaries, early adversarial eval planning, harness adapters, and local-first execution. Those are still design commitments, not language or framework commitments.
 
 The product direction is an agency gradient: powerful agents for Intent, assisted agents for Solution Design, and fully automated Dark Factory execution after those artifacts are cemented.
 
@@ -12,7 +12,7 @@ The product direction is an agency gradient: powerful agents for Intent, assiste
 
 ### Gate 1: Product Center Of Gravity
 
-Decision needed: artifact-first, harness-first, conversation-first, or explicit hybrid. The current product thesis is a hybrid with conversational/agentic Intent, artifact-mediated Solution Design, and automated Orchestration.
+Decision needed: artifact-first, harness-first, conversation-first, or explicit hybrid. The current product thesis is a DFT control plane with agent-rich Intent, agent-assisted Solution Design, and automated Orchestration.
 
 Why it matters:
 
@@ -22,6 +22,20 @@ Why it matters:
 Output:
 
 - A design record that defines the product center.
+
+### Gate 1A: Harness Strategy
+
+Decision needed: use one harness for the whole process, use phase-specific harnesses behind adapters, or build a custom product core with optional harness integrations.
+
+Why it matters:
+
+- Determines whether DFT is a product control plane or a convention layer on top of another assistant.
+- Determines how much DFT owns artifacts, gates, run state, and verdicts.
+
+Output:
+
+- A harness strategy design record.
+- A spike plan for OpenClaw/OpenHands, CrewAI/AutoGen, and workflow-engine candidates.
 
 ### Gate 2: Flow Semantics
 
@@ -78,6 +92,7 @@ Goal: make the design space explicit and preserve choices as reviewable records.
 
 Work items:
 
+- Review [docs/foundation/product-design.md](product-design.md).
 - Review [docs/foundation/design-discussion.md](design-discussion.md).
 - Convert accepted working recommendations into design records.
 - Mark unresolved axes as open questions.

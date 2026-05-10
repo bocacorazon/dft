@@ -1,6 +1,6 @@
 # Dark Factory Toolkit Foundation Design
 
-This document summarizes the current foundation shape. The fuller option analysis lives in [docs/foundation/design-discussion.md](design-discussion.md), and the staged implementation plan lives in [docs/foundation/implementation-plan.md](implementation-plan.md).
+This document summarizes the current foundation shape. The product design analysis lives in [docs/foundation/product-design.md](product-design.md), the fuller architecture option analysis lives in [docs/foundation/design-discussion.md](design-discussion.md), and the staged implementation plan lives in [docs/foundation/implementation-plan.md](implementation-plan.md).
 
 ## Purpose
 
@@ -173,7 +173,7 @@ Each evaluation must produce structured evidence and map back to one or more acc
 
 ## Agent Harness Inspiration
 
-The design discussion should evaluate whether DFT should use a custom local runner, an existing graph-oriented agent framework, or a general workflow engine as its substrate. The current foundation direction is to keep the core artifact and flow model independent from any single harness until that comparison is made.
+The product design should evaluate whether DFT should use a custom local runner, an existing graph-oriented agent framework, a coding-agent harness, a personal assistant harness, or a general workflow engine as its substrate. The current foundation direction is to keep the core artifact and flow model independent from any single harness until that comparison is made.
 
 - Graph-oriented agent frameworks are useful inspiration for explicit state, nodes, edges, checkpoints, and resumability.
 - Role-based multi-agent frameworks are useful inspiration for the Intent and Solution Design phases, but they are a weaker fit for the runtime core because DFT wants rigid orchestration.
@@ -182,6 +182,8 @@ The design discussion should evaluate whether DFT should use a custom local runn
 - Spec-driven systems are useful inspiration for the artifact ladder from intent to plan to tasks to implementation to validation.
 
 OpenClaw and Hermes should be evaluated as concrete references once their exact target projects and versions are pinned down. The foundation architecture should stay compatible with their strongest likely patterns: typed tool registries, workspace isolation, explicit run logs, model abstraction, and repeatable agent invocations.
+
+The current product recommendation is that DFT should be a control plane with harness adapters. Existing systems can be workers for specific phases, but DFT should own artifacts, gates, lanes, policies, evidence, and verdicts.
 
 ## Initial Implementation Slices
 
