@@ -1,0 +1,103 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://dark-factory-toolkit.local/schemas/eval-plan.schema.yaml
+title: EvalPlan
+type: object
+additionalProperties: false
+required:
+  - id
+  - demand_package_id
+  - strategy
+  - suites
+  - verdict
+properties:
+  id:
+    type: string
+    pattern: ^eval-[a-z0-9][a-z0-9-]*$
+  demand_package_id:
+    type: string
+    pattern: ^dp-[a-z0-9][a-z0-9-]*$
+  wbs_id:
+    type: string
+    pattern: ^wbs-[a-z0-9][a-z0-9-]*$
+  strategy:
+    type: object
+    additionalProperties: false
+    required:
+      - posture
+      - focus_areas
+      - criteria_traceability_required
+    properties:
+      posture:
+        type: string
+        enum:
+          - adversarial
+      focus_areas:
+        type: array
+        items:
+          type: string
+      criteria_traceability_required:
+        type: boolean
+  suites:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - method
+        - acceptance_criteria_refs
+      properties:
+        id:
+          type: string
+          pattern: ^suite-[0-9]+$
+        name:
+          type: string
+        method:
+          type: string
+          enum:
+            - generated_tests
+            - static_analysis
+            - artifact_review
+            - llm_review
+            - command_check
+            - manual_gate
+        acceptance_criteria_refs:
+          type: array
+          items:
+            type: string
+            pattern: ^ac-[0-9]+$
+        commands:
+          type: array
+          items:
+            type: string
+        evidence_required:
+          type: array
+          items:
+            type: string
+  verdict:
+    type: object
+    additionalProperties: false
+    required:
+      - pass_conditions
+      - fail_conditions
+      - allowed_statuses
+    properties:
+      pass_conditions:
+        type: array
+        items:
+          type: string
+      fail_conditions:
+        type: array
+        items:
+          type: string
+      allowed_statuses:
+        type: array
+        items:
+          type: string
+          enum:
+            - pass
+            - fail
+            - inconclusive
+            - blocked
