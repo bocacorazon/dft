@@ -33,7 +33,7 @@ We should have a pluggable flow execution engine. For example:
 I only want to focus on the local one for now.
 I would like that from the beginning, we make the LLM models to use on the flows to be configurable, override-able by the orchestrator.
 
- My goal for the initial session is to discuss different approaches to addressing the problem, and creating an overall design document under docs/foundation to start the development process.
+ My goal for the initial session is to discuss different approaches to addressing the problem, and creating an overall design document under docs/000-foundation to start the development process.
 I would like you to review the current best practices in agent harness, product offerings, etc. to draw inspiration, not reinvent the wheel.
 As I describe my desired program, cannot help but notice that many of the features coincide with OpenClaw or Hermes. Please evaluate them for their design. Recommend a design based on those tools if you think they are a good fit.
 
