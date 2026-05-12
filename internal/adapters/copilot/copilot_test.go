@@ -41,7 +41,7 @@ func TestAdapterInvokesCopilotBinaryAndCapturesTranscript(t *testing.T) {
 		t.Fatalf("raw response = %q, want fake JSON", response.Raw)
 	}
 	for _, name := range []string{"stdout.txt", "stderr.txt", "prompt.md"} {
-		if _, err := os.Stat(filepath.Join(root, "transcripts", "run-123", "dft-intake.agent.md", name)); err != nil {
+		if _, err := os.Stat(filepath.Join(root, "transcripts", "dft-intake.agent.md", name)); err != nil {
 			t.Fatalf("expected transcript %s: %v", name, err)
 		}
 	}

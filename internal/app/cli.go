@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bocacorazon/dft/internal/adapters/agentstub"
+	"github.com/bocacorazon/dft/internal/adapters/copilot"
 	"github.com/bocacorazon/dft/internal/adapters/state"
 	"github.com/bocacorazon/dft/internal/adapters/verify"
 	"github.com/bocacorazon/dft/internal/domain"
@@ -88,8 +89,8 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 
 func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 	adapterName := "stub"
-	dryRun := false
 	dogfood := false
+	copilotBinary := ""
 	var demandParts []string
 
 	for i := 0; i < len(args); i++ {
@@ -101,8 +102,16 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 			}
 			i++
 			adapterName = args[i]
+		case "--copilot-binary":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "--copilot-binary requires a value")
+				return 2
+			}
+			i++
+			copilotBinary = args[i]
 		case "--dry-run":
-			dryRun = true
+			// Accepted for compatibility. Local submit is safe by default and
+			// records all mutations under .dft/.
 		case "--dogfood":
 			dogfood = true
 		default:
@@ -110,22 +119,18 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 	}
 
-	if adapterName != "stub" {
-		fmt.Fprintln(stderr, "only the stub adapter is implemented")
-		return 2
-	}
-	if !dryRun {
-		fmt.Fprintln(stderr, "submit currently requires --dry-run")
-		return 2
-	}
-
 	runID := os.Getenv("DFT_RUN_ID")
 	if runID == "" {
 		runID = "run-" + time.Now().UTC().Format("20060102-150405")
 	}
+	adapter, err := selectAgentAdapter(adapterName, copilotBinary, runID)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 
 	service := intake.Service{
-		Adapter: agentstub.Adapter{},
+		Adapter: adapter,
 		RunID:   runID,
 		RootDir: ".",
 	}
@@ -153,6 +158,7 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "dogfood loop complete for run %s\n", runID)
 		return 0
 	}
+
 	manifest.Status = domain.RunSucceeded
 	if err := store.Save(manifest); err != nil {
 		fmt.Fprintln(stderr, err)
@@ -161,6 +167,22 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 
 	fmt.Fprintf(stdout, "created demand package %s for run %s\n", demandPackage.ID, runID)
 	return 0
+}
+
+func selectAgentAdapter(name string, copilotBinary string, runID string) (ports.AgentAdapter, error) {
+	switch name {
+	case "stub":
+		return agentstub.Adapter{}, nil
+	case "copilot":
+		return copilot.Adapter{
+			Binary:        copilotBinary,
+			Cwd:           ".",
+			TranscriptDir: filepath.Join(".dft", "runs", runID, "transcripts"),
+			Timeout:       10 * time.Minute,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown adapter %q", name)
+	}
 }
 
 func runStatus(stdout io.Writer, stderr io.Writer) int {

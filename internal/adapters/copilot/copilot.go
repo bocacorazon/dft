@@ -68,11 +68,7 @@ func (a Adapter) writeTranscript(request ports.AgentRequest, stdout []byte, stde
 	if a.TranscriptDir == "" {
 		return nil
 	}
-	runID := request.RunID
-	if runID == "" {
-		runID = "unknown-run"
-	}
-	dir := filepath.Join(a.TranscriptDir, runID, request.AgentName)
+	dir := filepath.Join(a.TranscriptDir, request.AgentName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create transcript directory: %w", err)
 	}
