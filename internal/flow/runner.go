@@ -35,12 +35,14 @@ type Definition struct {
 
 // Step describes one typed flow step.
 type Step struct {
-	ID            string   `json:"id"`
-	Type          StepType `json:"type"`
-	AgentName     string   `json:"agent_name,omitempty"`
-	Prompt        string   `json:"prompt,omitempty"`
-	Demand        string   `json:"demand,omitempty"`
-	MaxIterations int      `json:"max_iterations,omitempty"`
+	ID            string            `json:"id"`
+	Type          StepType          `json:"type"`
+	AgentName     string            `json:"agent_name,omitempty"`
+	Prompt        string            `json:"prompt,omitempty"`
+	Demand        string            `json:"demand,omitempty"`
+	Cwd           string            `json:"cwd,omitempty"`
+	Env           map[string]string `json:"env,omitempty"`
+	MaxIterations int               `json:"max_iterations,omitempty"`
 }
 
 // Runner executes typed flow definitions and writes per-step audit artifacts.
@@ -133,6 +135,8 @@ func (r Runner) executeAgentStep(ctx context.Context, step Step, stepDir string)
 		Prompt:    step.Prompt,
 		Demand:    step.Demand,
 		RunID:     r.RunID,
+		Cwd:       step.Cwd,
+		Env:       step.Env,
 	})
 	if err != nil {
 		return fmt.Errorf("invoke agent step %q: %w", step.ID, err)

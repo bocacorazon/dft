@@ -8,6 +8,8 @@ type AgentRequest struct {
 	Prompt    string
 	Demand    string
 	RunID     string
+	Cwd       string
+	Env       map[string]string
 }
 
 // AgentResponse contains raw agent output before strict parsing.

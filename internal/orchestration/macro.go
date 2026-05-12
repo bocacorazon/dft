@@ -61,14 +61,18 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 
 	runner := flow.Runner{Agent: m.Agent, ArtifactRoot: m.ArtifactRoot, RunID: demandPackage.ID}
 	var stepResults []flow.StepResult
-	for _, spec := range specPlan.WBS.Specs {
-		result, err := runner.Execute(ctx, flow.Definition{Steps: []flow.Step{{
-			ID:        "spec-" + spec.ID,
-			Type:      flow.StepAgent,
-			AgentName: "dft-intake.agent.md",
-			Prompt:    "Execute spec: " + spec.Description,
-			Demand:    spec.Description,
-		}}})
+	for i, spec := range specPlan.WBS.Specs {
+		worktree := SpecWorktree{
+			Branch:       "spec/" + demandPackage.ID + "/" + spec.ID,
+			WorktreePath: filepath.Join(".dft", "worktrees", demandPackage.ID, spec.ID),
+			SpecKitEnv: map[string]string{
+				"GIT_BRANCH_NAME": "spec/" + demandPackage.ID + "/" + spec.ID,
+			},
+		}
+		if i < len(specPlan.Worktrees) {
+			worktree = specPlan.Worktrees[i]
+		}
+		result, err := runner.Execute(ctx, BuildSpecKitLane(spec, worktree))
 		stepResults = append(stepResults, result.Steps...)
 		if err != nil {
 			return MacroResult{}, fmt.Errorf("run spec %s: %w", spec.ID, err)

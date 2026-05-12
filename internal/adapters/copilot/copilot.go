@@ -40,7 +40,13 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 
 	cmd := exec.CommandContext(ctx, binary, "agent", request.AgentName)
 	cmd.Dir = a.Cwd
+	if request.Cwd != "" {
+		cmd.Dir = request.Cwd
+	}
 	cmd.Env = append(os.Environ(), a.Env...)
+	for key, value := range request.Env {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 	cmd.Stdin = strings.NewReader(request.Prompt)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
