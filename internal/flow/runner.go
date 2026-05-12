@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
+	"github.com/bocacorazon/dft/internal/domain"
 	"github.com/bocacorazon/dft/internal/ports"
 )
 
@@ -16,6 +18,7 @@ type StepType string
 const (
 	StepAgent    StepType = "agent"
 	StepFunction StepType = "function"
+	StepTool     StepType = "tool"
 	StepVerify   StepType = "verify"
 )
 
@@ -29,8 +32,18 @@ const (
 
 // Definition is the minimal built-in flow shape used before external DSL support.
 type Definition struct {
-	MaxSpecParallelism int    `json:"max_spec_parallelism,omitempty"`
-	Steps              []Step `json:"steps"`
+	MaxSpecParallelism int     `json:"max_spec_parallelism,omitempty"`
+	Steps              []Step  `json:"steps"`
+	Stages             []Stage `json:"stages,omitempty"`
+}
+
+// Stage groups setup, main, after, and verification work.
+type Stage struct {
+	ID     string         `json:"id"`
+	Setup  []Step         `json:"setup,omitempty"`
+	Steps  []Step         `json:"steps"`
+	After  []Step         `json:"after,omitempty"`
+	Verify []domain.Check `json:"verify,omitempty"`
 }
 
 // Step describes one typed flow step.
@@ -42,6 +55,9 @@ type Step struct {
 	Demand        string            `json:"demand,omitempty"`
 	Cwd           string            `json:"cwd,omitempty"`
 	Env           map[string]string `json:"env,omitempty"`
+	Command       []string          `json:"command,omitempty"`
+	Function      string            `json:"function,omitempty"`
+	Args          map[string]string `json:"args,omitempty"`
 	MaxIterations int               `json:"max_iterations,omitempty"`
 }
 
@@ -50,11 +66,14 @@ type Runner struct {
 	Agent        ports.AgentAdapter
 	ArtifactRoot string
 	RunID        string
+	Verifier     ports.Verifier
 }
 
 // Result contains terminal status for every completed step.
 type Result struct {
-	Steps []StepResult
+	Steps        []StepResult
+	Vars         map[string]string
+	Verification []domain.VerificationResult
 }
 
 // StepResult contains terminal status for one step.
@@ -70,9 +89,15 @@ func (r Runner) Execute(ctx context.Context, definition Definition) (Result, err
 		return Result{}, fmt.Errorf("run id is required")
 	}
 
-	result := Result{Steps: make([]StepResult, 0, len(definition.Steps))}
+	result := Result{
+		Steps: make([]StepResult, 0, len(definition.Steps)),
+		Vars:  map[string]string{},
+	}
+	if len(definition.Stages) > 0 {
+		return r.executeStages(ctx, definition.Stages, result)
+	}
 	for _, step := range definition.Steps {
-		stepResult, err := r.executeStep(ctx, step)
+		stepResult, err := r.executeStep(ctx, step, &result)
 		result.Steps = append(result.Steps, stepResult)
 		if err != nil {
 			return result, err
@@ -81,7 +106,44 @@ func (r Runner) Execute(ctx context.Context, definition Definition) (Result, err
 	return result, nil
 }
 
-func (r Runner) executeStep(ctx context.Context, step Step) (StepResult, error) {
+func (r Runner) executeStages(ctx context.Context, stages []Stage, result Result) (Result, error) {
+	for _, stage := range stages {
+		for _, step := range stage.Setup {
+			stepResult, err := r.executeStep(ctx, step, &result)
+			result.Steps = append(result.Steps, stepResult)
+			if err != nil {
+				return result, fmt.Errorf("stage %q setup: %w", stage.ID, err)
+			}
+		}
+		for _, step := range stage.Steps {
+			stepResult, err := r.executeStep(ctx, step, &result)
+			result.Steps = append(result.Steps, stepResult)
+			if err != nil {
+				return result, fmt.Errorf("stage %q step: %w", stage.ID, err)
+			}
+		}
+		for _, step := range stage.After {
+			stepResult, err := r.executeStep(ctx, step, &result)
+			result.Steps = append(result.Steps, stepResult)
+			if err != nil {
+				return result, fmt.Errorf("stage %q after: %w", stage.ID, err)
+			}
+		}
+		if len(stage.Verify) > 0 {
+			if r.Verifier == nil {
+				return result, fmt.Errorf("stage %q verifier is required", stage.ID)
+			}
+			verification := r.Verifier.Run(ctx, stage.Verify)
+			result.Verification = append(result.Verification, verification)
+			if verification.Status != domain.VerdictPass {
+				return result, fmt.Errorf("stage %q verification failed", stage.ID)
+			}
+		}
+	}
+	return result, nil
+}
+
+func (r Runner) executeStep(ctx context.Context, step Step, result *Result) (StepResult, error) {
 	if step.ID == "" {
 		return StepResult{Type: step.Type, Status: StepFailed}, fmt.Errorf("step id is required")
 	}
@@ -109,7 +171,43 @@ func (r Runner) executeStep(ctx context.Context, step Step) (StepResult, error) 
 			lastErr = err
 		}
 		return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, lastErr
-	case StepFunction, StepVerify:
+	case StepTool:
+		if len(step.Command) == 0 {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, fmt.Errorf("step %q command is required", step.ID)
+		}
+		cmd := exec.CommandContext(ctx, step.Command[0], step.Command[1:]...)
+		cmd.Dir = step.Cwd
+		if cmd.Dir == "" {
+			cmd.Dir = r.ArtifactRoot
+		}
+		cmd.Env = os.Environ()
+		for key, value := range step.Env {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
+		output, err := cmd.CombinedOutput()
+		if writeErr := os.WriteFile(filepath.Join(stepDir, "stdout.txt"), output, 0o644); writeErr != nil {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, fmt.Errorf("write tool output artifact: %w", writeErr)
+		}
+		if err != nil {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, fmt.Errorf("run tool step %q: %w", step.ID, err)
+		}
+		if err := writeParsed(stepDir, map[string]string{"status": "succeeded"}); err != nil {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
+		}
+	case StepFunction:
+		if step.Function != "set_var" {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, fmt.Errorf("unsupported function %q", step.Function)
+		}
+		name := step.Args["name"]
+		value := step.Args["value"]
+		if name == "" {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, fmt.Errorf("set_var requires name")
+		}
+		result.Vars[name] = value
+		if err := writeParsed(stepDir, map[string]string{name: value}); err != nil {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
+		}
+	case StepVerify:
 		if err := writeParsed(stepDir, map[string]string{"status": "not_implemented"}); err != nil {
 			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
 		}
