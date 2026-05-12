@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -179,6 +180,48 @@ esac
 	}
 }
 
+func TestRunnerExecutesAdditionalClosedSetFunctions(t *testing.T) {
+	root := t.TempDir()
+	initGitRepo(t, root)
+	runner := Runner{ArtifactRoot: root, RunID: "run-123"}
+
+	result, err := runner.Execute(context.Background(), Definition{Steps: []Step{
+		{ID: "message", Type: StepFunction, Function: "commit_message", Args: map[string]string{"title": "feat: test", "body": "body"}},
+		{ID: "current", Type: StepFunction, Function: "git_branch_current"},
+		{ID: "default", Type: StepFunction, Function: "git_default_branch"},
+		{ID: "push", Type: StepFunction, Function: "git_push", Args: map[string]string{"remote": "origin", "branch": "main"}},
+	}})
+
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Vars["commit_message"] == "" || result.Vars["current_branch"] == "" || result.Vars["default_branch"] == "" {
+		t.Fatalf("vars missing closed-set function outputs: %#v", result.Vars)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".dft", "runs", "run-123", "remote", "push.json")); err != nil {
+		t.Fatalf("missing git_push remote audit: %v", err)
+	}
+}
+
+func TestRunnerWaitForHumanWritesInboxAndBlocks(t *testing.T) {
+	root := t.TempDir()
+	runner := Runner{ArtifactRoot: root, RunID: "run-123"}
+
+	_, err := runner.Execute(context.Background(), Definition{Steps: []Step{{
+		ID:       "approval",
+		Type:     StepFunction,
+		Function: "wait_for_human",
+		Args:     map[string]string{"message": "approve"},
+	}}})
+
+	if err == nil {
+		t.Fatalf("Execute returned nil error, want human gate block")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".dft", "inbox", "run-123-approval.json")); err != nil {
+		t.Fatalf("missing wait_for_human inbox item: %v", err)
+	}
+}
+
 func assertJSONWhenParsedArtifact(t *testing.T, path string) {
 	t.Helper()
 	if filepath.Base(path) != "parsed.json" {
@@ -201,4 +244,32 @@ type capturingAgent struct {
 func (a *capturingAgent) Invoke(_ context.Context, request ports.AgentRequest) (ports.AgentResponse, error) {
 	a.prompt = request.Prompt
 	return ports.AgentResponse{Raw: `{"ok":true}`}, nil
+}
+
+func initGitRepo(t *testing.T, root string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"init", "-b", "main"},
+		{"config", "user.email", "dft@example.test"},
+		{"config", "user.name", "dft"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, output)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("test\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	for _, args := range [][]string{
+		{"add", "README.md"},
+		{"commit", "-m", "initial"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, output)
+		}
+	}
 }

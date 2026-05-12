@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/bocacorazon/dft/internal/adapters/github"
 	"github.com/bocacorazon/dft/internal/domain"
@@ -270,6 +271,91 @@ func (r Runner) executeFunctionStep(ctx context.Context, step Step, stepDir stri
 			return err
 		}
 		return writeParsed(stepDir, record)
+	case "wait_for_human":
+		record := map[string]string{
+			"status":  "blocked",
+			"message": step.Args["message"],
+		}
+		if err := writeInboxItem(r.ArtifactRoot, r.RunID, step.ID, record); err != nil {
+			return err
+		}
+		if err := writeParsed(stepDir, record); err != nil {
+			return err
+		}
+		return fmt.Errorf("wait_for_human blocked run")
+	case "commit_message":
+		message := strings.TrimSpace(step.Args["title"] + "\n\n" + step.Args["body"])
+		if message == "" {
+			return fmt.Errorf("commit_message requires title or body")
+		}
+		result.Vars["commit_message"] = message
+		return writeParsed(stepDir, map[string]string{"commit_message": message})
+	case "git_branch_current":
+		out, err := runGit(ctx, r.ArtifactRoot, "rev-parse", "--abbrev-ref", "HEAD")
+		if err != nil {
+			return err
+		}
+		branch := strings.TrimSpace(out)
+		result.Vars["current_branch"] = branch
+		return writeParsed(stepDir, map[string]string{"current_branch": branch})
+	case "git_default_branch":
+		branch, err := defaultBranch(ctx, r.ArtifactRoot)
+		if err != nil {
+			return err
+		}
+		result.Vars["default_branch"] = branch
+		return writeParsed(stepDir, map[string]string{"default_branch": branch})
+	case "branch":
+		name := step.Args["name"]
+		base := step.Args["base"]
+		if name == "" {
+			return fmt.Errorf("branch requires name")
+		}
+		args := []string{"switch", "-c", name}
+		if base != "" {
+			args = append(args, base)
+		}
+		if _, err := runGit(ctx, r.ArtifactRoot, args...); err != nil {
+			return err
+		}
+		return writeParsed(stepDir, map[string]string{"branch": name, "base": base})
+	case "merge":
+		source := step.Args["source"]
+		target := step.Args["target"]
+		if source == "" || target == "" {
+			return fmt.Errorf("merge requires source and target")
+		}
+		if _, err := runGit(ctx, r.ArtifactRoot, "switch", target); err != nil {
+			return err
+		}
+		if _, err := runGit(ctx, r.ArtifactRoot, "merge", "--no-ff", "--no-edit", source); err != nil {
+			return err
+		}
+		return writeParsed(stepDir, map[string]string{"source": source, "target": target})
+	case "git_push":
+		remote := step.Args["remote"]
+		branch := step.Args["branch"]
+		if remote == "" {
+			remote = "origin"
+		}
+		if branch == "" {
+			return fmt.Errorf("git_push requires branch")
+		}
+		record := map[string]string{"remote": remote, "branch": branch, "remote_only": "true"}
+		if step.Args["dry_run"] != "false" {
+			if err := writeRemoteAudit(r.ArtifactRoot, r.RunID, step.ID, record); err != nil {
+				return err
+			}
+			return writeParsed(stepDir, record)
+		}
+		if _, err := runGit(ctx, r.ArtifactRoot, "push", remote, branch); err != nil {
+			return err
+		}
+		record["status"] = "pushed"
+		if err := writeRemoteAudit(r.ArtifactRoot, r.RunID, step.ID, record); err != nil {
+			return err
+		}
+		return writeParsed(stepDir, record)
 	default:
 		return fmt.Errorf("unsupported function %q", step.Function)
 	}
@@ -296,6 +382,52 @@ func stepPRNumber(step Step, result *Result) (int, error) {
 		return 0, fmt.Errorf("parse PR number: %w", err)
 	}
 	return number, nil
+}
+
+func runGit(ctx context.Context, root string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = root
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s failed: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return string(output), nil
+}
+
+func defaultBranch(ctx context.Context, root string) (string, error) {
+	out, err := runGit(ctx, root, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+	if err == nil {
+		return strings.TrimPrefix(strings.TrimSpace(out), "origin/"), nil
+	}
+	out, err = runGit(ctx, root, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func writeInboxItem(root string, runID string, stepID string, value any) error {
+	path := filepath.Join(root, ".dft", "inbox", runID+"-"+stepID+".json")
+	return writeJSONArtifact(path, value)
+}
+
+func writeRemoteAudit(root string, runID string, stepID string, value any) error {
+	path := filepath.Join(root, ".dft", "runs", runID, "remote", stepID+".json")
+	return writeJSONArtifact(path, value)
+}
+
+func writeJSONArtifact(path string, value any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create artifact directory: %w", err)
+	}
+	content, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode artifact: %w", err)
+	}
+	if err := os.WriteFile(path, append(content, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write artifact: %w", err)
+	}
+	return nil
 }
 
 func (r Runner) executeAgentStep(ctx context.Context, step Step, stepDir string) error {
