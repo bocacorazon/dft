@@ -11,7 +11,7 @@ import (
 	"github.com/bocacorazon/dft/internal/domain"
 )
 
-func TestPlanSpecsBuildsWBSAssignsLanesAndCreatesSpecWorktrees(t *testing.T) {
+func TestPlanSpecsBuildsWBSAndAssignsLanesWithoutCreatingSpecWorktrees(t *testing.T) {
 	root := t.TempDir()
 	git := &recordingGit{defaultBranch: "main"}
 	manager := WorktreeManager{Git: git, WorktreeRoot: filepath.Join(root, ".dft", "worktrees")}
@@ -42,11 +42,11 @@ func TestPlanSpecsBuildsWBSAssignsLanesAndCreatesSpecWorktrees(t *testing.T) {
 	if len(result.LaneAssignments) != 1 || result.LaneAssignments[0].Lane != "spec" {
 		t.Fatalf("lane assignments = %#v, want one spec lane", result.LaneAssignments)
 	}
-	if len(result.Worktrees) != 1 {
-		t.Fatalf("worktree count = %d, want 1", len(result.Worktrees))
+	if len(result.Worktrees) != 0 {
+		t.Fatalf("worktree count = %d, want 0; worktrees must be created just-in-time from current increment", len(result.Worktrees))
 	}
-	if got := result.Worktrees[0].SpecKitEnv["GIT_BRANCH_NAME"]; got != "spec/run-123/001-build-intake-loop" {
-		t.Fatalf("GIT_BRANCH_NAME = %q", got)
+	if git.createdWorktree.Path != "" {
+		t.Fatalf("created worktree during design = %#v, want none", git.createdWorktree)
 	}
 
 	for _, name := range []string{"wbs.json", "lane-assignments.json"} {

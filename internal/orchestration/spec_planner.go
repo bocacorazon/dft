@@ -12,7 +12,7 @@ import (
 	"github.com/bocacorazon/dft/internal/ports"
 )
 
-// SpecPlanner creates WBS/lane design artifacts and spec worktrees.
+// SpecPlanner creates WBS/lane design artifacts.
 type SpecPlanner struct {
 	Agent        ports.AgentAdapter
 	Worktrees    WorktreeManager
@@ -26,7 +26,7 @@ type SpecPlanResult struct {
 	Worktrees       []SpecWorktree
 }
 
-// PlanSpecs turns a demand package into specs, lanes, and per-spec worktrees.
+// PlanSpecs turns a demand package into specs and lanes.
 func (p SpecPlanner) PlanSpecs(ctx context.Context, demandPackage domain.DemandPackage, incrementBranch string) (SpecPlanResult, error) {
 	if err := demandPackage.Validate(); err != nil {
 		return SpecPlanResult{}, fmt.Errorf("validate demand package: %w", err)
@@ -59,20 +59,7 @@ func (p SpecPlanner) PlanSpecs(ctx context.Context, demandPackage domain.DemandP
 		return SpecPlanResult{}, err
 	}
 
-	worktrees := make([]SpecWorktree, 0, len(wbs.Specs))
-	for _, spec := range wbs.Specs {
-		worktree, err := p.Worktrees.BeginSpec(ctx, SpecRequest{
-			RunID:           demandPackage.ID,
-			SpecID:          spec.ID,
-			IncrementBranch: incrementBranch,
-		})
-		if err != nil {
-			return SpecPlanResult{}, err
-		}
-		worktrees = append(worktrees, worktree)
-	}
-
-	return SpecPlanResult{WBS: wbs, LaneAssignments: assignments, Worktrees: worktrees}, nil
+	return SpecPlanResult{WBS: wbs, LaneAssignments: assignments}, nil
 }
 
 func (p SpecPlanner) buildWBS(ctx context.Context, demandPackage domain.DemandPackage) (domain.WBS, error) {

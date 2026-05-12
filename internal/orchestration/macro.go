@@ -114,11 +114,7 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 			return MacroResult{}, fmt.Errorf("plan failed-eval remediation: %w", err)
 		}
 		result.WBSAmendment = &amendment
-		remediationWorktrees, err := m.beginRemediationSpecs(ctx, demandPackage.ID, increment.Branch, amendment.RemediationSpecs)
-		if err != nil {
-			return MacroResult{}, err
-		}
-		remediationResults, err := m.executeSpecs(ctx, runner, demandPackage.ID, increment.Branch, amendment.RemediationSpecs, remediationWorktrees)
+		remediationResults, err := m.executeSpecs(ctx, runner, demandPackage.ID, increment.Branch, amendment.RemediationSpecs, nil)
 		stepResults = append(stepResults, remediationResults...)
 		result.StepResults = stepResults
 		if err != nil {
@@ -198,6 +194,16 @@ func (m MacroOrchestrator) executeSpecs(ctx context.Context, runner flow.Runner,
 		}
 		if i < len(worktrees) {
 			worktree = worktrees[i]
+		} else {
+			var err error
+			worktree, err = m.Worktrees.BeginSpec(ctx, SpecRequest{
+				RunID:           runID,
+				SpecID:          spec.ID,
+				IncrementBranch: incrementBranch,
+			})
+			if err != nil {
+				return stepResults, fmt.Errorf("begin spec %s: %w", spec.ID, err)
+			}
 		}
 		result, err := runner.Execute(ctx, BuildSpecKitLane(spec, worktree))
 		stepResults = append(stepResults, result.Steps...)
@@ -212,22 +218,6 @@ func (m MacroOrchestrator) executeSpecs(ctx context.Context, runner flow.Runner,
 		}
 	}
 	return stepResults, nil
-}
-
-func (m MacroOrchestrator) beginRemediationSpecs(ctx context.Context, runID string, incrementBranch string, specs []domain.SpecRef) ([]SpecWorktree, error) {
-	worktrees := make([]SpecWorktree, 0, len(specs))
-	for _, spec := range specs {
-		worktree, err := m.Worktrees.BeginSpec(ctx, SpecRequest{
-			RunID:           runID,
-			SpecID:          spec.ID,
-			IncrementBranch: incrementBranch,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("begin remediation spec %s: %w", spec.ID, err)
-		}
-		worktrees = append(worktrees, worktree)
-	}
-	return worktrees, nil
 }
 
 func writeMacroResult(root string, runID string, result MacroResult) error {
