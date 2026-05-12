@@ -55,6 +55,36 @@ func TestMacroOrchestratorRunsFullLocalIncrementLifecycle(t *testing.T) {
 	}
 }
 
+func TestMacroOrchestratorCanHoldPassingIncrementBeforeDefaultMerge(t *testing.T) {
+	root := t.TempDir()
+	git := &macroRecordingGit{defaultBranch: "main"}
+	orchestrator := MacroOrchestrator{
+		Agent:         agentstub.Adapter{},
+		Worktrees:     WorktreeManager{Git: git, WorktreeRoot: filepath.Join(root, ".dft", "worktrees")},
+		Verifier:      verify.Checker{RootDir: root},
+		ArtifactRoot:  root,
+		Review:        domain.ReviewDecision{Approved: true},
+		HoldIncrement: true,
+	}
+
+	result, err := orchestrator.Execute(context.Background(), domain.DemandPackage{
+		ID:                 "run-123",
+		Title:              "Macro orchestrator",
+		RawDemand:          "Macro orchestrator",
+		AcceptanceCriteria: []string{"Full local increment lifecycle completes."},
+	})
+
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.IncrementHeld {
+		t.Fatalf("IncrementHeld = false, want true")
+	}
+	if len(git.merges) != 1 {
+		t.Fatalf("merge count = %d, want only spec merge with held increment", len(git.merges))
+	}
+}
+
 func TestMacroOrchestratorWritesFixPlanAndSkipsFinalMergeOnFailedEval(t *testing.T) {
 	root := t.TempDir()
 	git := &macroRecordingGit{defaultBranch: "main"}
@@ -86,6 +116,39 @@ func TestMacroOrchestratorWritesFixPlanAndSkipsFinalMergeOnFailedEval(t *testing
 	}
 	if _, err := os.Stat(filepath.Join(root, ".dft", "runs", "run-123", "fix-plan", "wbs-amendment.json")); err != nil {
 		t.Fatalf("fix plan artifact missing: %v", err)
+	}
+}
+
+func TestMacroOrchestratorRetriesRemediationSpecsAfterFailedEval(t *testing.T) {
+	root := t.TempDir()
+	git := &macroRecordingGit{defaultBranch: "main"}
+	orchestrator := MacroOrchestrator{
+		Agent:          agentstub.Adapter{},
+		Worktrees:      WorktreeManager{Git: git, WorktreeRoot: filepath.Join(root, ".dft", "worktrees")},
+		Verifier:       &failThenPassVerifier{},
+		ArtifactRoot:   root,
+		Review:         domain.ReviewDecision{Approved: true},
+		MaxEvalRetries: 1,
+	}
+
+	result, err := orchestrator.Execute(context.Background(), domain.DemandPackage{
+		ID:                 "run-123",
+		Title:              "Macro orchestrator",
+		RawDemand:          "Macro orchestrator",
+		AcceptanceCriteria: []string{"Full local increment lifecycle completes."},
+	})
+
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Evaluation.Status != domain.VerdictPass {
+		t.Fatalf("evaluation = %#v, want pass after remediation", result.Evaluation)
+	}
+	if result.WBSAmendment == nil {
+		t.Fatalf("WBS amendment = nil, want remediation record")
+	}
+	if len(git.merges) != 3 {
+		t.Fatalf("merge count = %d, want spec merge, remediation merge, final merge", len(git.merges))
 	}
 }
 
@@ -160,4 +223,22 @@ func (failingVerifier) Run(context.Context, []domain.Check) domain.VerificationR
 			Message: "forced failure",
 		}},
 	}
+}
+
+type failThenPassVerifier struct {
+	calls int
+}
+
+func (v *failThenPassVerifier) Run(context.Context, []domain.Check) domain.VerificationResult {
+	v.calls++
+	if v.calls == 1 {
+		return domain.VerificationResult{
+			Status: domain.VerdictFail,
+			Findings: []domain.Finding{{
+				CheckID: "forced-failure",
+				Message: "forced failure",
+			}},
+		}
+	}
+	return domain.VerificationResult{Status: domain.VerdictPass}
 }

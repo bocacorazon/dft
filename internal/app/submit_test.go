@@ -100,7 +100,7 @@ func TestRunSubmitCopilotAdapterWithoutDryRun(t *testing.T) {
 	t.Setenv("DFT_RUN_ID", "copilot-run")
 
 	binary := filepath.Join(dir, "fake-copilot")
-	if err := os.WriteFile(binary, []byte("#!/usr/bin/env sh\ncat >/dev/null\nprintf '{\"id\":\"copilot-run\",\"title\":\"Real Submit\",\"raw_demand\":\"Build real submit\",\"acceptance_criteria\":[\"real adapter selected\"]}\\n'\n"), 0o755); err != nil {
+	if err := os.WriteFile(binary, []byte("#!/usr/bin/env sh\nprintf '{\"id\":\"copilot-run\",\"title\":\"Real Submit\",\"raw_demand\":\"Build real submit\",\"acceptance_criteria\":[\"real adapter selected\"]}\\n'\n"), 0o755); err != nil {
 		t.Fatalf("write fake copilot: %v", err)
 	}
 
@@ -119,5 +119,8 @@ func TestRunSubmitCopilotAdapterWithoutDryRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".dft", "runs", "copilot-run", "transcripts", "dft-intake.agent.md", "stdout.txt")); err != nil {
 		t.Fatalf("copilot transcript missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".dft", "runs", "copilot-run", "transcripts", "dft-intake.agent.md", "argv.json")); err != nil {
+		t.Fatalf("copilot argv transcript missing: %v", err)
 	}
 }

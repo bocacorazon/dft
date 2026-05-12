@@ -27,6 +27,13 @@ const (
 	StepLoop     StepType = "loop"
 )
 
+type AgentOutputMode string
+
+const (
+	AgentOutputJSON AgentOutputMode = "json"
+	AgentOutputText AgentOutputMode = "text"
+)
+
 // StepStatus captures the terminal state of an executed step.
 type StepStatus string
 
@@ -56,6 +63,7 @@ type Step struct {
 	ID            string            `json:"id"`
 	Type          StepType          `json:"type"`
 	AgentName     string            `json:"agent_name,omitempty"`
+	OutputMode    AgentOutputMode   `json:"output_mode,omitempty"`
 	Prompt        string            `json:"prompt,omitempty"`
 	Demand        string            `json:"demand,omitempty"`
 	Cwd           string            `json:"cwd,omitempty"`
@@ -746,14 +754,20 @@ func (r Runner) executeAgentStep(ctx context.Context, step Step, stepDir string)
 	if err := os.WriteFile(filepath.Join(stepDir, "stdout.txt"), []byte(response.Raw), 0o644); err != nil {
 		return fmt.Errorf("write stdout artifact: %w", err)
 	}
-	var parsed any
-	if err := json.Unmarshal([]byte(response.Raw), &parsed); err != nil {
-		return fmt.Errorf("parse agent step %q output: %w", step.ID, err)
+	if step.OutputMode == "" || step.OutputMode == AgentOutputJSON {
+		var parsed any
+		if err := json.Unmarshal([]byte(response.Raw), &parsed); err != nil {
+			return fmt.Errorf("parse agent step %q output: %w", step.ID, err)
+		}
+		if err := writeParsed(stepDir, parsed); err != nil {
+			return err
+		}
+		return nil
 	}
-	if err := writeParsed(stepDir, parsed); err != nil {
-		return err
+	if step.OutputMode == AgentOutputText {
+		return writeParsed(stepDir, map[string]string{"output_mode": string(AgentOutputText), "status": "captured"})
 	}
-	return nil
+	return fmt.Errorf("unsupported agent output mode %q", step.OutputMode)
 }
 
 func writeParsed(stepDir string, value any) error {

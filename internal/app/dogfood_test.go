@@ -57,3 +57,24 @@ func TestRunSubmitDogfoodStubCreatesFullFeedbackLoopArtifacts(t *testing.T) {
 		t.Fatalf("next raw demand = %q, want original request context", next.RawDemand)
 	}
 }
+
+func TestRunSubmitDogfoodCanHoldIncrement(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	t.Setenv("DFT_RUN_ID", "held-run")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"submit", "--adapter", "stub", "--dry-run", "--dogfood", "--hold-increment", "Improve dft status output"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("Run returned exit code %d, want 0\nstderr: %s", code, stderr.String())
+	}
+	content, err := os.ReadFile(filepath.Join(root, ".dft", "runs", "held-run", "macro-result.json"))
+	if err != nil {
+		t.Fatalf("read macro result: %v", err)
+	}
+	if !strings.Contains(string(content), `"increment_held": true`) {
+		t.Fatalf("macro result missing held increment marker:\n%s", content)
+	}
+}

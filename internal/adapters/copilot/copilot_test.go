@@ -2,6 +2,7 @@ package copilot
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,7 +19,19 @@ func TestAdapterInvokesCopilotBinaryAndCapturesTranscript(t *testing.T) {
 	}
 	root := t.TempDir()
 	binary := filepath.Join(root, "fake-copilot")
-	if err := os.WriteFile(binary, []byte("#!/usr/bin/env sh\nprintf '{\"ok\":true,\"agent\":\"%s\"}\\n' \"$2\"\nprintf 'warn\\n' >&2\n"), 0o755); err != nil {
+	if err := os.WriteFile(binary, []byte(`#!/usr/bin/env sh
+agent=""
+prompt=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --agent) shift; agent="$1" ;;
+    -p|--prompt) shift; prompt="$1" ;;
+  esac
+  shift
+done
+printf '{"ok":true,"agent":"%s","prompt":"%s"}\n' "$agent" "$prompt"
+printf 'warn\n' >&2
+`), 0o755); err != nil {
 		t.Fatalf("write fake binary: %v", err)
 	}
 
@@ -40,10 +53,21 @@ func TestAdapterInvokesCopilotBinaryAndCapturesTranscript(t *testing.T) {
 	if !strings.Contains(response.Raw, `"ok":true`) {
 		t.Fatalf("raw response = %q, want fake JSON", response.Raw)
 	}
-	for _, name := range []string{"stdout.txt", "stderr.txt", "prompt.md"} {
+	for _, name := range []string{"stdout.txt", "stderr.txt", "prompt.md", "argv.json"} {
 		if _, err := os.Stat(filepath.Join(root, "transcripts", "dft-intake.agent.md", name)); err != nil {
 			t.Fatalf("expected transcript %s: %v", name, err)
 		}
+	}
+	rawArgv, err := os.ReadFile(filepath.Join(root, "transcripts", "dft-intake.agent.md", "argv.json"))
+	if err != nil {
+		t.Fatalf("read argv transcript: %v", err)
+	}
+	var argv []string
+	if err := json.Unmarshal(rawArgv, &argv); err != nil {
+		t.Fatalf("argv transcript invalid JSON: %v\n%s", err, rawArgv)
+	}
+	if !containsSequence(argv, "--agent", "dft-intake.agent.md") || !containsSequence(argv, "-p", "Normalize demand") {
+		t.Fatalf("argv = %#v, want --agent and -p prompt", argv)
 	}
 }
 
@@ -66,4 +90,13 @@ func TestAdapterReturnsContextForNonZeroExit(t *testing.T) {
 	if !strings.Contains(err.Error(), "bad news") {
 		t.Fatalf("error = %v, want stderr context", err)
 	}
+}
+
+func containsSequence(values []string, first string, second string) bool {
+	for i := 0; i+1 < len(values); i++ {
+		if values[i] == first && values[i+1] == second {
+			return true
+		}
+	}
+	return false
 }

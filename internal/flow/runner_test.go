@@ -145,6 +145,35 @@ func TestRunnerCanDisableProjectContext(t *testing.T) {
 	}
 }
 
+func TestRunnerCapturesTextAgentOutputWithoutJSONParsing(t *testing.T) {
+	root := t.TempDir()
+	runner := Runner{
+		Agent:        staticTextAgent{raw: "created files\n"},
+		ArtifactRoot: root,
+		RunID:        "run-123",
+	}
+
+	_, err := runner.Execute(context.Background(), Definition{Steps: []Step{{
+		ID:         "speckit",
+		Type:       StepAgent,
+		AgentName:  "speckit.specify.agent.md",
+		OutputMode: AgentOutputText,
+		Prompt:     "Create spec",
+	}}})
+
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	stepDir := filepath.Join(root, ".dft", "runs", "run-123", "steps", "speckit")
+	stdout, err := os.ReadFile(filepath.Join(stepDir, "stdout.txt"))
+	if err != nil {
+		t.Fatalf("read stdout artifact: %v", err)
+	}
+	if string(stdout) != "created files\n" {
+		t.Fatalf("stdout = %q, want text output", stdout)
+	}
+}
+
 func TestRunnerExecutesGitHubPRFunctionsWithRemoteAudit(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake gh fixture is POSIX-specific")
@@ -347,6 +376,14 @@ type capturingAgent struct {
 func (a *capturingAgent) Invoke(_ context.Context, request ports.AgentRequest) (ports.AgentResponse, error) {
 	a.prompt = request.Prompt
 	return ports.AgentResponse{Raw: `{"ok":true}`}, nil
+}
+
+type staticTextAgent struct {
+	raw string
+}
+
+func (a staticTextAgent) Invoke(context.Context, ports.AgentRequest) (ports.AgentResponse, error) {
+	return ports.AgentResponse{Raw: a.raw}, nil
 }
 
 func initGitRepo(t *testing.T, root string) {

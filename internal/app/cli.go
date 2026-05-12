@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -76,6 +77,8 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 	dogfood := false
 	copilotBinary := ""
 	dryRun := false
+	holdIncrement := false
+	evalRetries := 1
 	var demandParts []string
 
 	for i := 0; i < len(args); i++ {
@@ -98,6 +101,20 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 			dryRun = true
 		case "--dogfood":
 			dogfood = true
+		case "--hold-increment", "--no-merge":
+			holdIncrement = true
+		case "--eval-retries":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "--eval-retries requires a value")
+				return 2
+			}
+			i++
+			parsed, err := strconv.Atoi(args[i])
+			if err != nil || parsed < 0 {
+				fmt.Fprintln(stderr, "--eval-retries requires a non-negative integer")
+				return 2
+			}
+			evalRetries = parsed
 		default:
 			demandParts = append(demandParts, args[i])
 		}
@@ -145,7 +162,7 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 	if dogfood {
-		if err := runDogfoodLoop(context.Background(), demandPackage, adapter, dryRun); err != nil {
+		if err := runDogfoodLoop(context.Background(), demandPackage, adapter, dryRun, holdIncrement, evalRetries); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
@@ -327,7 +344,7 @@ func printDurableRunDetails(runID string, stdout io.Writer, stderr io.Writer) in
 	return 0
 }
 
-func runDogfoodLoop(ctx context.Context, demandPackage domain.DemandPackage, adapter ports.AgentAdapter, dryRun bool) error {
+func runDogfoodLoop(ctx context.Context, demandPackage domain.DemandPackage, adapter ports.AgentAdapter, dryRun bool, holdIncrement bool, evalRetries int) error {
 	gitPort := ports.GitPort(gitadapter.Adapter{RepoDir: "."})
 	if dryRun {
 		gitPort = dryRunGit{defaultBranch: "main"}
@@ -341,6 +358,8 @@ func runDogfoodLoop(ctx context.Context, demandPackage domain.DemandPackage, ada
 		ArtifactRoot:     ".",
 		Verifier:         verify.Checker{RootDir: "."},
 		CommitLocalSteps: !dryRun,
+		HoldIncrement:    holdIncrement,
+		MaxEvalRetries:   evalRetries,
 	}).Execute(ctx, demandPackage); err != nil {
 		return fmt.Errorf("execute dogfood macro loop: %w", err)
 	}

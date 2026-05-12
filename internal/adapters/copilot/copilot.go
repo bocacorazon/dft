@@ -3,6 +3,7 @@ package copilot
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -38,23 +39,33 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(ctx, binary, "agent", request.AgentName)
-	cmd.Dir = a.Cwd
+	cmdDir := a.Cwd
 	if request.Cwd != "" {
-		cmd.Dir = request.Cwd
+		cmdDir = request.Cwd
 	}
+	args := []string{
+		"-C", cmdDir,
+		"--agent", request.AgentName,
+		"-p", request.Prompt,
+		"--allow-all",
+		"--no-ask-user",
+		"--autopilot",
+		"-s",
+		"--output-format", "text",
+	}
+	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.Dir = cmdDir
 	cmd.Env = append(os.Environ(), a.Env...)
 	for key, value := range request.Env {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
-	cmd.Stdin = strings.NewReader(request.Prompt)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	if writeErr := a.writeTranscript(request, stdout.Bytes(), stderr.Bytes()); writeErr != nil && err == nil {
+	if writeErr := a.writeTranscript(request, args, stdout.Bytes(), stderr.Bytes()); writeErr != nil && err == nil {
 		return ports.AgentResponse{}, writeErr
 	}
 	if err != nil {
@@ -70,7 +81,7 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 	return ports.AgentResponse{Raw: stdout.String()}, nil
 }
 
-func (a Adapter) writeTranscript(request ports.AgentRequest, stdout []byte, stderr []byte) error {
+func (a Adapter) writeTranscript(request ports.AgentRequest, argv []string, stdout []byte, stderr []byte) error {
 	if a.TranscriptDir == "" {
 		return nil
 	}
@@ -80,6 +91,13 @@ func (a Adapter) writeTranscript(request ports.AgentRequest, stdout []byte, stde
 	}
 	if err := os.WriteFile(filepath.Join(dir, "prompt.md"), []byte(request.Prompt), 0o644); err != nil {
 		return fmt.Errorf("write prompt transcript: %w", err)
+	}
+	argvContent, err := json.MarshalIndent(argv, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode argv transcript: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "argv.json"), append(argvContent, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write argv transcript: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "stdout.txt"), stdout, 0o644); err != nil {
 		return fmt.Errorf("write stdout transcript: %w", err)
