@@ -6,6 +6,7 @@ type RunStatus string
 const (
 	RunRunning   RunStatus = "running"
 	RunSucceeded RunStatus = "succeeded"
+	RunFailed    RunStatus = "failed"
 	RunCancelled RunStatus = "cancelled"
 )
 

@@ -7,6 +7,7 @@ const (
 	JobQueued  JobStatus = "queued"
 	JobRunning JobStatus = "running"
 	JobDone    JobStatus = "done"
+	JobFailed  JobStatus = "failed"
 )
 
 // JobRecord stores FIFO queue membership for a run.

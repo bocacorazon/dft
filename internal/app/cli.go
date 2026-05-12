@@ -176,6 +176,10 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if dogfood {
 		if err := runDogfoodLoop(context.Background(), demandPackage, adapter, dryRun, holdIncrement, evalRetries); err != nil {
+			manifest.Status = domain.RunFailed
+			if stateErr := recordFailedRun(store, sqlStore, jobID, manifest); stateErr != nil {
+				fmt.Fprintf(stderr, "record failure state: %v\n", stateErr)
+			}
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
@@ -297,6 +301,16 @@ func saveRunState(jsonStore state.JSONStore, sqlStore *state.SQLiteStore, manife
 		return err
 	}
 	if err := sqlStore.Save(manifest); err != nil {
+		return err
+	}
+	return nil
+}
+
+func recordFailedRun(jsonStore state.JSONStore, sqlStore *state.SQLiteStore, jobID string, manifest domain.RunManifest) error {
+	if err := sqlStore.SetJobStatus(jobID, domain.JobFailed); err != nil {
+		return err
+	}
+	if err := saveRunState(jsonStore, sqlStore, manifest); err != nil {
 		return err
 	}
 	return nil

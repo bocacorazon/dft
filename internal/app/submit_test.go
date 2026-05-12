@@ -139,3 +139,52 @@ func TestRunSubmitRejectsInvalidAgentTimeout(t *testing.T) {
 		t.Fatalf("stderr = %q, want timeout error", got)
 	}
 }
+
+func TestRunSubmitDogfoodFailureRecordsFailedStatus(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-specific")
+	}
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("DFT_RUN_ID", "failed-run")
+
+	binary := filepath.Join(dir, "fake-copilot")
+	script := `#!/usr/bin/env sh
+agent=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--agent" ]; then
+    shift
+    agent="$1"
+  fi
+  shift
+done
+if [ "$agent" = "dft-intake" ]; then
+  printf '{"id":"failed-run","title":"Failure Run","raw_demand":"Build failing dogfood","acceptance_criteria":["record failure"]}\n'
+  exit 0
+fi
+printf 'not json\n'
+`
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake copilot: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"submit", "--adapter", "copilot", "--copilot-binary", binary, "--dogfood", "--dry-run", "Build failing dogfood"}, &stdout, &stderr)
+
+	if code != 2 {
+		t.Fatalf("Run returned exit code %d, want 2", code)
+	}
+	if got := stderr.String(); !strings.Contains(got, "parse WBS builder output") {
+		t.Fatalf("stderr = %q, want WBS parse failure", got)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"status"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("status returned %d\nstderr: %s", code, stderr.String())
+	}
+	if got := stdout.String(); !strings.Contains(got, "failed-run") || !strings.Contains(got, "failed") {
+		t.Fatalf("status output = %q, want failed run", got)
+	}
+}
