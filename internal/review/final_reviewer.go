@@ -2,10 +2,10 @@ package review
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 
+	"github.com/bocacorazon/dft/internal/agentjson"
 	"github.com/bocacorazon/dft/internal/domain"
 	"github.com/bocacorazon/dft/internal/ports"
 )
@@ -36,7 +36,7 @@ func (r FinalReviewer) Review(ctx context.Context, demandPackage domain.DemandPa
 	}
 
 	var decision domain.ReviewDecision
-	if err := json.Unmarshal([]byte(response.Raw), &decision); err != nil {
+	if err := agentjson.DecodeFirst(response.Raw, &decision); err != nil {
 		return domain.ReviewDecision{}, fmt.Errorf("parse final review output: %w", err)
 	}
 	if !decision.Approved && len(decision.Findings) == 0 {

@@ -2,10 +2,10 @@ package review
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 
+	"github.com/bocacorazon/dft/internal/agentjson"
 	"github.com/bocacorazon/dft/internal/domain"
 	"github.com/bocacorazon/dft/internal/ports"
 )
@@ -39,7 +39,7 @@ func (p FixPlanner) Plan(ctx context.Context, demandPackage domain.DemandPackage
 	}
 
 	var amendment domain.WBSAmendment
-	if err := json.Unmarshal([]byte(response.Raw), &amendment); err != nil {
+	if err := agentjson.DecodeFirst(response.Raw, &amendment); err != nil {
 		return domain.WBSAmendment{}, fmt.Errorf("parse fix planner output: %w", err)
 	}
 	if len(amendment.Findings) == 0 {

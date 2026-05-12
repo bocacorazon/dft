@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/bocacorazon/dft/internal/agentjson"
 	"github.com/bocacorazon/dft/internal/domain"
 	"github.com/bocacorazon/dft/internal/ports"
 )
@@ -40,7 +41,7 @@ func (a EvalPlanAuthor) Author(ctx context.Context, demandPackage domain.DemandP
 	}
 
 	var plan domain.EvaluationPlan
-	if err := json.Unmarshal([]byte(response.Raw), &plan); err != nil {
+	if err := agentjson.DecodeFirst(response.Raw, &plan); err != nil {
 		return domain.EvaluationPlan{}, fmt.Errorf("parse eval plan author output: %w", err)
 	}
 	if err := plan.Validate(); err != nil {

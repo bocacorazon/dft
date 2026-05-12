@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/bocacorazon/dft/internal/agentjson"
 	"github.com/bocacorazon/dft/internal/domain"
 	"github.com/bocacorazon/dft/internal/ports"
 )
@@ -86,7 +87,7 @@ func (p SpecPlanner) buildWBS(ctx context.Context, demandPackage domain.DemandPa
 	}
 
 	var wbs domain.WBS
-	if err := json.Unmarshal([]byte(response.Raw), &wbs); err != nil {
+	if err := agentjson.DecodeFirst(response.Raw, &wbs); err != nil {
 		return domain.WBS{}, fmt.Errorf("parse WBS builder output: %w", err)
 	}
 	if err := wbs.Validate(); err != nil {
@@ -107,7 +108,7 @@ func (p SpecPlanner) selectLanes(ctx context.Context, demandPackage domain.Deman
 	}
 
 	var assignments []domain.LaneAssignment
-	if err := json.Unmarshal([]byte(response.Raw), &assignments); err != nil {
+	if err := agentjson.DecodeFirst(response.Raw, &assignments); err != nil {
 		return nil, fmt.Errorf("parse lane selector output: %w", err)
 	}
 	if err := domain.ValidateLaneAssignments(assignments); err != nil {

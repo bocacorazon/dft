@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/bocacorazon/dft/internal/agentjson"
 	"github.com/bocacorazon/dft/internal/domain"
 	"github.com/bocacorazon/dft/internal/ports"
 )
@@ -56,7 +57,7 @@ func (s Service) CreateDemandPackage(ctx context.Context, demand string) (domain
 	}
 
 	var demandPackage domain.DemandPackage
-	if err := json.Unmarshal([]byte(response.Raw), &demandPackage); err != nil {
+	if err := agentjson.DecodeFirst(response.Raw, &demandPackage); err != nil {
 		return domain.DemandPackage{}, fmt.Errorf("parse intake agent output: %w", err)
 	}
 	if demandPackage.ID == "" || demandPackage.ID == "unknown" {

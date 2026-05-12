@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/bocacorazon/dft/internal/adapters/github"
+	"github.com/bocacorazon/dft/internal/agentjson"
 	"github.com/bocacorazon/dft/internal/domain"
 	"github.com/bocacorazon/dft/internal/ports"
 )
@@ -758,7 +759,7 @@ func (r Runner) executeAgentStep(ctx context.Context, step Step, stepDir string)
 	}
 	if step.OutputMode == "" || step.OutputMode == AgentOutputJSON {
 		var parsed any
-		if err := json.Unmarshal([]byte(response.Raw), &parsed); err != nil {
+		if err := agentjson.DecodeFirst(response.Raw, &parsed); err != nil {
 			return fmt.Errorf("parse agent step %q output: %w", step.ID, err)
 		}
 		if err := writeParsed(stepDir, parsed); err != nil {
