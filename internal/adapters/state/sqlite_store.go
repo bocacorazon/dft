@@ -58,13 +58,62 @@ func (s *SQLiteStore) migrate() error {
 			commit_sha TEXT,
 			PRIMARY KEY (run_id, step_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS inbox_entries (
+			id TEXT PRIMARY KEY,
+			run_id TEXT NOT NULL,
+			step_id TEXT,
+			status TEXT NOT NULL,
+			message TEXT NOT NULL
+		)`,
 	}
+
 	for _, statement := range statements {
 		if _, err := s.db.Exec(statement); err != nil {
 			return fmt.Errorf("migrate sqlite state: %w", err)
 		}
 	}
 	return nil
+}
+
+// SaveInboxEntry persists a human-facing escalation or manual gate.
+func (s *SQLiteStore) SaveInboxEntry(entry domain.InboxEntry) error {
+	if entry.ID == "" || entry.RunID == "" {
+		return fmt.Errorf("inbox entry id and run id are required")
+	}
+	if entry.Status == "" {
+		entry.Status = "open"
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO inbox_entries (id, run_id, step_id, status, message) VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET run_id=excluded.run_id, step_id=excluded.step_id, status=excluded.status, message=excluded.message`,
+		entry.ID, entry.RunID, entry.StepID, entry.Status, entry.Message,
+	)
+	if err != nil {
+		return fmt.Errorf("save inbox entry: %w", err)
+	}
+	return nil
+}
+
+// ListInboxEntries returns durable inbox entries for a run.
+func (s *SQLiteStore) ListInboxEntries(runID string) ([]domain.InboxEntry, error) {
+	rows, err := s.db.Query(`SELECT id, run_id, COALESCE(step_id, ''), status, message FROM inbox_entries WHERE run_id = ? ORDER BY id`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("list inbox entries: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []domain.InboxEntry
+	for rows.Next() {
+		var entry domain.InboxEntry
+		if err := rows.Scan(&entry.ID, &entry.RunID, &entry.StepID, &entry.Status, &entry.Message); err != nil {
+			return nil, fmt.Errorf("scan inbox entry: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate inbox entries: %w", err)
+	}
+	return entries, nil
 }
 
 // Save writes a run manifest.
@@ -121,9 +170,25 @@ func (s *SQLiteStore) Enqueue(jobID string, runID string) error {
 	if jobID == "" || runID == "" {
 		return fmt.Errorf("job id and run id are required")
 	}
-	_, err := s.db.Exec(`INSERT INTO jobs (id, run_id, status) VALUES (?, ?, ?)`, jobID, runID, domain.JobQueued)
+	_, err := s.db.Exec(
+		`INSERT INTO jobs (id, run_id, status) VALUES (?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET run_id=excluded.run_id, status=excluded.status`,
+		jobID, runID, domain.JobQueued,
+	)
 	if err != nil {
 		return fmt.Errorf("enqueue job: %w", err)
+	}
+	return nil
+}
+
+// SetJobStatus updates a queued/running job state.
+func (s *SQLiteStore) SetJobStatus(jobID string, status domain.JobStatus) error {
+	if jobID == "" {
+		return fmt.Errorf("job id is required")
+	}
+	_, err := s.db.Exec(`UPDATE jobs SET status = ? WHERE id = ?`, status, jobID)
+	if err != nil {
+		return fmt.Errorf("set job status: %w", err)
 	}
 	return nil
 }

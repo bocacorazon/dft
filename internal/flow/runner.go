@@ -23,6 +23,8 @@ const (
 	StepFunction StepType = "function"
 	StepTool     StepType = "tool"
 	StepVerify   StepType = "verify"
+	StepWorkflow StepType = "workflow"
+	StepLoop     StepType = "loop"
 )
 
 // StepStatus captures the terminal state of an executed step.
@@ -63,14 +65,22 @@ type Step struct {
 	Args          map[string]string `json:"args,omitempty"`
 	MaxIterations int               `json:"max_iterations,omitempty"`
 	NoContext     bool              `json:"no_context,omitempty"`
+	Setup         []Step            `json:"setup,omitempty"`
+	Verify        []domain.Check    `json:"verify,omitempty"`
+	Checks        []domain.Check    `json:"checks,omitempty"`
+	OnError       string            `json:"on_error,omitempty"`
+	Workflow      string            `json:"workflow,omitempty"`
+	Steps         []Step            `json:"steps,omitempty"`
+	ExitWhen      map[string]string `json:"exit_when,omitempty"`
 }
 
 // Runner executes typed flow definitions and writes per-step audit artifacts.
 type Runner struct {
-	Agent        ports.AgentAdapter
-	ArtifactRoot string
-	RunID        string
-	Verifier     ports.Verifier
+	Agent            ports.AgentAdapter
+	ArtifactRoot     string
+	RunID            string
+	Verifier         ports.Verifier
+	CommitLocalSteps bool
 }
 
 // Result contains terminal status for every completed step.
@@ -101,8 +111,8 @@ func (r Runner) Execute(ctx context.Context, definition Definition) (Result, err
 		return r.executeStages(ctx, definition.Stages, result)
 	}
 	for _, step := range definition.Steps {
-		stepResult, err := r.executeStep(ctx, step, &result)
-		result.Steps = append(result.Steps, stepResult)
+		stepResults, err := r.executeStepWithPolicy(ctx, step, &result)
+		result.Steps = append(result.Steps, stepResults...)
 		if err != nil {
 			return result, err
 		}
@@ -113,22 +123,22 @@ func (r Runner) Execute(ctx context.Context, definition Definition) (Result, err
 func (r Runner) executeStages(ctx context.Context, stages []Stage, result Result) (Result, error) {
 	for _, stage := range stages {
 		for _, step := range stage.Setup {
-			stepResult, err := r.executeStep(ctx, step, &result)
-			result.Steps = append(result.Steps, stepResult)
+			stepResults, err := r.executeStepWithPolicy(ctx, step, &result)
+			result.Steps = append(result.Steps, stepResults...)
 			if err != nil {
 				return result, fmt.Errorf("stage %q setup: %w", stage.ID, err)
 			}
 		}
 		for _, step := range stage.Steps {
-			stepResult, err := r.executeStep(ctx, step, &result)
-			result.Steps = append(result.Steps, stepResult)
+			stepResults, err := r.executeStepWithPolicy(ctx, step, &result)
+			result.Steps = append(result.Steps, stepResults...)
 			if err != nil {
 				return result, fmt.Errorf("stage %q step: %w", stage.ID, err)
 			}
 		}
 		for _, step := range stage.After {
-			stepResult, err := r.executeStep(ctx, step, &result)
-			result.Steps = append(result.Steps, stepResult)
+			stepResults, err := r.executeStepWithPolicy(ctx, step, &result)
+			result.Steps = append(result.Steps, stepResults...)
 			if err != nil {
 				return result, fmt.Errorf("stage %q after: %w", stage.ID, err)
 			}
@@ -147,6 +157,44 @@ func (r Runner) executeStages(ctx context.Context, stages []Stage, result Result
 	return result, nil
 }
 
+func (r Runner) executeStepWithPolicy(ctx context.Context, step Step, result *Result) ([]StepResult, error) {
+	var stepResults []StepResult
+	for _, setup := range step.Setup {
+		results, err := r.executeStepWithPolicy(ctx, setup, result)
+		stepResults = append(stepResults, results...)
+		if err != nil {
+			return stepResults, fmt.Errorf("step %q setup: %w", step.ID, err)
+		}
+	}
+
+	attempts := retryAttempts(step)
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		rendered := renderStep(step, result)
+		stepResult, err := r.executeStep(ctx, rendered, result)
+		stepResults = append(stepResults, stepResult)
+		if err == nil {
+			return stepResults, nil
+		}
+		lastErr = err
+	}
+
+	switch onErrorMode(step.OnError) {
+	case "continue":
+		return stepResults, nil
+	case "escalate":
+		if err := writeInboxItem(r.ArtifactRoot, r.RunID, step.ID, map[string]string{
+			"status":  "escalated",
+			"message": lastErr.Error(),
+		}); err != nil {
+			return stepResults, err
+		}
+		return stepResults, lastErr
+	default:
+		return stepResults, lastErr
+	}
+}
+
 func (r Runner) executeStep(ctx context.Context, step Step, result *Result) (StepResult, error) {
 	if step.ID == "" {
 		return StepResult{Type: step.Type, Status: StepFailed}, fmt.Errorf("step id is required")
@@ -162,19 +210,9 @@ func (r Runner) executeStep(ctx context.Context, step Step, result *Result) (Ste
 
 	switch step.Type {
 	case StepAgent:
-		iterations := step.MaxIterations
-		if iterations == 0 {
-			iterations = 1
+		if err := r.executeAgentStep(ctx, step, stepDir); err != nil {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
 		}
-		var lastErr error
-		for i := 0; i < iterations; i++ {
-			err := r.executeAgentStep(ctx, step, stepDir)
-			if err == nil {
-				return StepResult{ID: step.ID, Type: step.Type, Status: StepSucceeded}, nil
-			}
-			lastErr = err
-		}
-		return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, lastErr
 	case StepTool:
 		if len(step.Command) == 0 {
 			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, fmt.Errorf("step %q command is required", step.ID)
@@ -203,11 +241,47 @@ func (r Runner) executeStep(ctx context.Context, step Step, result *Result) (Ste
 			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
 		}
 	case StepVerify:
-		if err := writeParsed(stepDir, map[string]string{"status": "not_implemented"}); err != nil {
+		if err := r.executeVerifyStep(ctx, step, stepDir, result); err != nil {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
+		}
+	case StepWorkflow:
+		path := step.Workflow
+		if path == "" {
+			path = step.Args["path"]
+		}
+		if path == "" {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, fmt.Errorf("workflow step %q requires path", step.ID)
+		}
+		definition, err := LoadDefinition(r.path(path))
+		if err != nil {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
+		}
+		workflowResult, err := r.Execute(ctx, definition)
+		result.Steps = append(result.Steps, workflowResult.Steps...)
+		result.Verification = append(result.Verification, workflowResult.Verification...)
+		for key, value := range workflowResult.Vars {
+			result.Vars[key] = value
+		}
+		if err != nil {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
+		}
+		if err := writeParsed(stepDir, map[string]string{"status": "succeeded", "workflow": path}); err != nil {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
+		}
+	case StepLoop:
+		if err := r.executeLoopStep(ctx, step, stepDir, result); err != nil {
 			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
 		}
 	default:
 		return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, fmt.Errorf("unsupported step type %q", step.Type)
+	}
+	if err := r.verifyStep(ctx, step, result); err != nil {
+		return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
+	}
+	if r.CommitLocalSteps && mutatesLocal(step) {
+		if _, err := commitStep(ctx, commitRoot(r.ArtifactRoot, step), r.RunID, step.ID); err != nil {
+			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
+		}
 	}
 
 	return StepResult{ID: step.ID, Type: step.Type, Status: StepSucceeded}, nil
@@ -361,6 +435,95 @@ func (r Runner) executeFunctionStep(ctx context.Context, step Step, stepDir stri
 	}
 }
 
+func (r Runner) executeVerifyStep(ctx context.Context, step Step, stepDir string, result *Result) error {
+	checks := step.Checks
+	if len(checks) == 0 {
+		checks = step.Verify
+	}
+	if len(checks) == 0 {
+		return fmt.Errorf("verify step %q requires checks", step.ID)
+	}
+	if r.Verifier == nil {
+		return fmt.Errorf("verify step %q verifier is required", step.ID)
+	}
+	verification := r.Verifier.Run(ctx, checks)
+	result.Verification = append(result.Verification, verification)
+	if err := writeParsed(stepDir, verification); err != nil {
+		return err
+	}
+	if verification.Status != domain.VerdictPass {
+		return fmt.Errorf("verify step %q failed", step.ID)
+	}
+	return nil
+}
+
+func (r Runner) verifyStep(ctx context.Context, step Step, result *Result) error {
+	if len(step.Verify) == 0 || step.Type == StepVerify {
+		return nil
+	}
+	if r.Verifier == nil {
+		return fmt.Errorf("step %q verifier is required", step.ID)
+	}
+	verification := r.Verifier.Run(ctx, step.Verify)
+	result.Verification = append(result.Verification, verification)
+	if verification.Status != domain.VerdictPass {
+		return fmt.Errorf("step %q verification failed", step.ID)
+	}
+	return nil
+}
+
+func (r Runner) executeLoopStep(ctx context.Context, step Step, stepDir string, result *Result) error {
+	if step.MaxIterations <= 0 {
+		return fmt.Errorf("loop step %q requires max_iterations", step.ID)
+	}
+	if len(step.Steps) == 0 {
+		return fmt.Errorf("loop step %q requires steps", step.ID)
+	}
+	for i := 0; i < step.MaxIterations; i++ {
+		for _, nested := range step.Steps {
+			stepResults, err := r.executeStepWithPolicy(ctx, nested, result)
+			result.Steps = append(result.Steps, stepResults...)
+			if err != nil {
+				return fmt.Errorf("loop step %q iteration %d: %w", step.ID, i+1, err)
+			}
+		}
+		if r.loopExit(step, result) {
+			return writeParsed(stepDir, map[string]any{"status": "succeeded", "iterations": i + 1})
+		}
+	}
+	if len(step.ExitWhen) > 0 {
+		return fmt.Errorf("loop step %q exhausted %d iteration(s)", step.ID, step.MaxIterations)
+	}
+	return writeParsed(stepDir, map[string]any{"status": "succeeded", "iterations": step.MaxIterations})
+}
+
+func (r Runner) loopExit(step Step, result *Result) bool {
+	if len(step.ExitWhen) == 0 {
+		return false
+	}
+	if path := step.ExitWhen["file_exists"]; path != "" {
+		if _, err := os.Stat(r.path(renderString(path, result))); err == nil {
+			return true
+		}
+	}
+	if value := step.ExitWhen["no_critical_findings"]; value == "true" {
+		if len(result.Verification) == 0 {
+			return false
+		}
+		return result.Verification[len(result.Verification)-1].Status == domain.VerdictPass
+	}
+	if value := step.ExitWhen["check_passes"]; value != "" {
+		for i := len(result.Verification) - 1; i >= 0; i-- {
+			for _, check := range result.Verification[i].Results {
+				if check.CheckID == value {
+					return check.Passed
+				}
+			}
+		}
+	}
+	return false
+}
+
 func githubAdapter(root string, step Step) github.Adapter {
 	return github.Adapter{
 		RootDir: root,
@@ -406,9 +569,127 @@ func defaultBranch(ctx context.Context, root string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+func retryAttempts(step Step) int {
+	if step.Type == StepLoop {
+		return 1
+	}
+	if step.MaxIterations > 0 {
+		return step.MaxIterations
+	}
+	mode := strings.TrimSpace(step.OnError)
+	if strings.HasPrefix(mode, "retry(") && strings.HasSuffix(mode, ")") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(mode, "retry("), ")")
+		parts := strings.Split(inner, ",")
+		count, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+		if err == nil && count > 0 {
+			return count + 1
+		}
+	}
+	return 1
+}
+
+func onErrorMode(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasPrefix(value, "retry(") {
+		return "fail"
+	}
+	return value
+}
+
+func renderStep(step Step, result *Result) Step {
+	step.Prompt = renderString(step.Prompt, result)
+	step.Demand = renderString(step.Demand, result)
+	step.Cwd = renderString(step.Cwd, result)
+	step.Workflow = renderString(step.Workflow, result)
+	for i, value := range step.Command {
+		step.Command[i] = renderString(value, result)
+	}
+	for key, value := range step.Env {
+		step.Env[key] = renderString(value, result)
+	}
+	for key, value := range step.Args {
+		step.Args[key] = renderString(value, result)
+	}
+	for key, value := range step.ExitWhen {
+		step.ExitWhen[key] = renderString(value, result)
+	}
+	return step
+}
+
+func renderString(value string, result *Result) string {
+	if value == "" || result == nil {
+		return value
+	}
+	for key, replacement := range result.Vars {
+		value = strings.ReplaceAll(value, "{{ vars."+key+" }}", replacement)
+		value = strings.ReplaceAll(value, "{{ "+key+" }}", replacement)
+	}
+	value = os.Expand(value, func(key string) string {
+		if strings.HasPrefix(key, "vars.") {
+			return result.Vars[strings.TrimPrefix(key, "vars.")]
+		}
+		if strings.HasPrefix(key, "env.") {
+			return os.Getenv(strings.TrimPrefix(key, "env."))
+		}
+		return os.Getenv(key)
+	})
+	return value
+}
+
+func mutatesLocal(step Step) bool {
+	if step.Type == StepTool || step.Type == StepAgent {
+		return true
+	}
+	if step.Type != StepFunction {
+		return false
+	}
+	switch step.Function {
+	case "branch", "merge":
+		return true
+	default:
+		return false
+	}
+}
+
+func commitRoot(root string, step Step) string {
+	if step.Cwd != "" && (step.Type == StepAgent || step.Type == StepTool) {
+		return step.Cwd
+	}
+	return root
+}
+
+func commitStep(ctx context.Context, root string, runID string, stepID string) (string, error) {
+	status, err := runGit(ctx, root, "status", "--porcelain")
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(status) == "" {
+		return "", nil
+	}
+	if _, err := runGit(ctx, root, "add", "-A"); err != nil {
+		return "", err
+	}
+	message := fmt.Sprintf("chore: commit dft step %s\n\nRun-ID: %s\nStep-ID: %s", stepID, runID, stepID)
+	if _, err := runGit(ctx, root, "commit", "-m", message); err != nil {
+		return "", err
+	}
+	commit, err := runGit(ctx, root, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(commit), nil
+}
+
 func writeInboxItem(root string, runID string, stepID string, value any) error {
 	path := filepath.Join(root, ".dft", "inbox", runID+"-"+stepID+".json")
 	return writeJSONArtifact(path, value)
+}
+
+func (r Runner) path(path string) string {
+	if filepath.IsAbs(path) || r.ArtifactRoot == "" {
+		return path
+	}
+	return filepath.Join(r.ArtifactRoot, path)
 }
 
 func writeRemoteAudit(root string, runID string, stepID string, value any) error {

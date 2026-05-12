@@ -86,3 +86,32 @@ func TestSQLiteStoreReconcilesCommittedStepAfterCrash(t *testing.T) {
 		t.Fatalf("step status = %q, want committed", steps[0].Status)
 	}
 }
+
+func TestSQLiteStorePersistsInboxEntries(t *testing.T) {
+	store, err := OpenSQLiteStore(filepath.Join(t.TempDir(), ".dft", "state.db"))
+	if err != nil {
+		t.Fatalf("OpenSQLiteStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	if err := store.Save(domain.RunManifest{ID: "run-123", Status: domain.RunRunning}); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+	if err := store.SaveInboxEntry(domain.InboxEntry{
+		ID:      "entry-1",
+		RunID:   "run-123",
+		StepID:  "approval",
+		Status:  "open",
+		Message: "approval required",
+	}); err != nil {
+		t.Fatalf("SaveInboxEntry returned error: %v", err)
+	}
+
+	entries, err := store.ListInboxEntries("run-123")
+	if err != nil {
+		t.Fatalf("ListInboxEntries returned error: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Message != "approval required" {
+		t.Fatalf("entries = %#v, want saved inbox entry", entries)
+	}
+}

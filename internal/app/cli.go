@@ -12,6 +12,7 @@ import (
 
 	"github.com/bocacorazon/dft/internal/adapters/agentstub"
 	"github.com/bocacorazon/dft/internal/adapters/copilot"
+	gitadapter "github.com/bocacorazon/dft/internal/adapters/git"
 	"github.com/bocacorazon/dft/internal/adapters/state"
 	"github.com/bocacorazon/dft/internal/adapters/verify"
 	"github.com/bocacorazon/dft/internal/domain"
@@ -36,9 +37,6 @@ Commands:
   init      Provision dft assets in a target repository
   sync      Update provisioned dft assets
   help      Show this help text
-
-The command surface is scaffolded. Non-help commands will fail until their
-increment implements the corresponding behavior.
 `
 
 var plannedCommands = map[string]struct{}{
@@ -91,6 +89,7 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 	adapterName := "stub"
 	dogfood := false
 	copilotBinary := ""
+	dryRun := false
 	var demandParts []string
 
 	for i := 0; i < len(args); i++ {
@@ -110,8 +109,7 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 			i++
 			copilotBinary = args[i]
 		case "--dry-run":
-			// Accepted for compatibility. Local submit is safe by default and
-			// records all mutations under .dft/.
+			dryRun = true
 		case "--dogfood":
 			dogfood = true
 		default:
@@ -151,12 +149,25 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	jobID := "job-" + runID
+	if err := sqlStore.Enqueue(jobID, runID); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if err := sqlStore.SetJobStatus(jobID, domain.JobRunning); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	if dogfood {
-		if err := runDogfoodLoop(context.Background(), demandPackage); err != nil {
+		if err := runDogfoodLoop(context.Background(), demandPackage, adapter, dryRun); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
 		manifest.Status = domain.RunSucceeded
+		if err := sqlStore.SetJobStatus(jobID, domain.JobDone); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
 		if err := saveRunState(store, sqlStore, manifest); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
@@ -165,6 +176,10 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 0
 	}
 	manifest.Status = domain.RunSucceeded
+	if err := sqlStore.SetJobStatus(jobID, domain.JobDone); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	if err := saveRunState(store, sqlStore, manifest); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -229,7 +244,10 @@ func runInspect(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "run %s not found: %v\n", args[0], err)
 		return 2
 	}
-	return walkRunArtifacts(runDir, stdout, stderr)
+	if code := walkRunArtifacts(runDir, stdout, stderr); code != 0 {
+		return code
+	}
+	return printDurableRunDetails(args[0], stdout, stderr)
 }
 
 func updateRunStatus(args []string, status domain.RunStatus, stdout io.Writer, stderr io.Writer) int {
@@ -298,20 +316,49 @@ func walkRunArtifacts(runDir string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
-func runDogfoodLoop(ctx context.Context, demandPackage domain.DemandPackage) error {
-	stub := agentstub.Adapter{}
+func printDurableRunDetails(runID string, stdout io.Writer, stderr io.Writer) int {
+	sqlStore, err := state.OpenSQLiteStore(filepath.Join(".dft", "state.db"))
+	if err != nil {
+		return 0
+	}
+	defer sqlStore.Close()
+	steps, err := sqlStore.ListSteps(runID)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	for _, step := range steps {
+		fmt.Fprintf(stdout, "state/steps/%s\t%s\t%s\n", step.StepID, step.Status, step.Commit)
+	}
+	entries, err := sqlStore.ListInboxEntries(runID)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	for _, entry := range entries {
+		fmt.Fprintf(stdout, "inbox/%s\t%s\t%s\n", entry.ID, entry.Status, entry.Message)
+	}
+	return 0
+}
+
+func runDogfoodLoop(ctx context.Context, demandPackage domain.DemandPackage, adapter ports.AgentAdapter, dryRun bool) error {
+	gitPort := ports.GitPort(gitadapter.Adapter{RepoDir: "."})
+	if dryRun {
+		gitPort = dryRunGit{defaultBranch: "main"}
+	}
 	if _, err := (orchestration.MacroOrchestrator{
-		Agent: stub,
+		Agent: adapter,
 		Worktrees: orchestration.WorktreeManager{
-			Git:          dryRunGit{defaultBranch: "main"},
+			Git:          gitPort,
 			WorktreeRoot: filepath.Join(".dft", "worktrees"),
 		},
-		ArtifactRoot: ".",
-		Verifier:     verify.Checker{RootDir: "."},
+		ArtifactRoot:     ".",
+		Verifier:         verify.Checker{RootDir: "."},
+		CommitLocalSteps: !dryRun,
 	}).Execute(ctx, demandPackage); err != nil {
 		return fmt.Errorf("execute dogfood macro loop: %w", err)
 	}
-	runner := flow.Runner{Agent: stub, ArtifactRoot: ".", RunID: demandPackage.ID}
+	runner := flow.Runner{Agent: adapter, ArtifactRoot: ".", RunID: demandPackage.ID, CommitLocalSteps: !dryRun}
 	if _, err := runner.Execute(ctx, flow.Definition{Steps: []flow.Step{{
 		ID:        "dogfood-intake",
 		Type:      flow.StepAgent,

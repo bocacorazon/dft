@@ -15,11 +15,12 @@ import (
 
 // MacroOrchestrator implements the top-level v1 dft lifecycle as engine code.
 type MacroOrchestrator struct {
-	Agent        ports.AgentAdapter
-	Worktrees    WorktreeManager
-	Verifier     ports.Verifier
-	ArtifactRoot string
-	Review       domain.ReviewDecision
+	Agent            ports.AgentAdapter
+	Worktrees        WorktreeManager
+	Verifier         ports.Verifier
+	ArtifactRoot     string
+	Review           domain.ReviewDecision
+	CommitLocalSteps bool
 }
 
 // MacroResult summarizes a completed macro-orchestration run.
@@ -61,7 +62,7 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 		return MacroResult{}, fmt.Errorf("plan specs: %w", err)
 	}
 
-	runner := flow.Runner{Agent: m.Agent, ArtifactRoot: m.ArtifactRoot, RunID: demandPackage.ID}
+	runner := flow.Runner{Agent: m.Agent, ArtifactRoot: m.ArtifactRoot, RunID: demandPackage.ID, CommitLocalSteps: m.CommitLocalSteps}
 	var stepResults []flow.StepResult
 	for i, spec := range specPlan.WBS.Specs {
 		worktree := SpecWorktree{

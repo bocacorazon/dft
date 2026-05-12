@@ -38,3 +38,12 @@ type CommitStep struct {
 	StepID string
 	Commit string
 }
+
+// InboxEntry is a durable human-facing escalation or manual gate.
+type InboxEntry struct {
+	ID      string `json:"id"`
+	RunID   string `json:"run_id"`
+	StepID  string `json:"step_id,omitempty"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}

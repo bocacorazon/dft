@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/bocacorazon/dft/internal/adapters/agentstub"
+	"github.com/bocacorazon/dft/internal/adapters/verify"
+	"github.com/bocacorazon/dft/internal/domain"
 	"github.com/bocacorazon/dft/internal/ports"
 )
 
@@ -222,6 +224,107 @@ func TestRunnerWaitForHumanWritesInboxAndBlocks(t *testing.T) {
 	}
 }
 
+func TestRunnerSupportsPerStepVerificationRetryContinueEscalateWorkflowAndLoop(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("tool fixture uses POSIX sh")
+	}
+	root := t.TempDir()
+	script := filepath.Join(root, "write-file.sh")
+	if err := os.WriteFile(script, []byte("#!/usr/bin/env sh\nprintf '%s' \"$1\" > \"$2\"\n"), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	workflowPath := filepath.Join(root, "workflow.json")
+	if err := os.WriteFile(workflowPath, []byte(`{"steps":[{"id":"workflow-var","type":"function","function":"set_var","args":{"name":"workflow_value","value":"done"}}]}`), 0o644); err != nil {
+		t.Fatalf("write workflow: %v", err)
+	}
+	runner := Runner{
+		ArtifactRoot: root,
+		RunID:        "run-123",
+		Verifier:     verify.Checker{RootDir: root},
+	}
+
+	result, err := runner.Execute(context.Background(), Definition{Steps: []Step{
+		{
+			ID:      "write",
+			Type:    StepTool,
+			Command: []string{script, "hello", filepath.Join(root, "result.txt")},
+			Verify:  []domain.Check{{ID: "result", Kind: domain.CheckGrepMatches, Args: []string{"result.txt", "hello"}}},
+		},
+		{
+			ID:      "continued",
+			Type:    StepTool,
+			Command: []string{"definitely-not-real"},
+			OnError: "continue",
+		},
+		{
+			ID:       "workflow",
+			Type:     StepWorkflow,
+			Workflow: workflowPath,
+		},
+		{
+			ID:            "loop",
+			Type:          StepLoop,
+			MaxIterations: 2,
+			ExitWhen:      map[string]string{"file_exists": "loop.txt"},
+			Steps: []Step{{
+				ID:      "loop-write",
+				Type:    StepTool,
+				Command: []string{script, "loop", filepath.Join(root, "loop.txt")},
+			}},
+		},
+		{
+			ID:      "escalated",
+			Type:    StepTool,
+			Command: []string{"definitely-not-real"},
+			OnError: "escalate",
+		},
+	}})
+
+	if err == nil {
+		t.Fatalf("Execute returned nil error, want escalated failure")
+	}
+	if result.Vars["workflow_value"] != "done" {
+		t.Fatalf("workflow var = %q, want done", result.Vars["workflow_value"])
+	}
+	if _, err := os.Stat(filepath.Join(root, ".dft", "inbox", "run-123-escalated.json")); err != nil {
+		t.Fatalf("missing escalation inbox item: %v", err)
+	}
+	if len(result.Verification) == 0 || result.Verification[0].Status != domain.VerdictPass {
+		t.Fatalf("verification = %#v, want passing per-step verification", result.Verification)
+	}
+}
+
+func TestRunnerCommitsLocalMutatingStepsWhenEnabled(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git fixture uses POSIX sh")
+	}
+	root := t.TempDir()
+	initGitRepo(t, root)
+	script := filepath.Join(root, "write-file.sh")
+	if err := os.WriteFile(script, []byte("#!/usr/bin/env sh\nprintf '%s' \"$1\" > \"$2\"\n"), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	runner := Runner{ArtifactRoot: root, RunID: "run-123", CommitLocalSteps: true}
+
+	_, err := runner.Execute(context.Background(), Definition{Steps: []Step{{
+		ID:      "write",
+		Type:    StepTool,
+		Command: []string{script, "tracked", filepath.Join(root, "tracked.txt")},
+	}}})
+
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	log := runGitForTest(t, root, "log", "-1", "--pretty=%B")
+	if !strings.Contains(log, "Run-ID: run-123") || !strings.Contains(log, "Step-ID: write") {
+		t.Fatalf("commit message missing dft trailers:\n%s", log)
+	}
+	status := runGitForTest(t, root, "status", "--porcelain")
+	if strings.TrimSpace(status) != "" {
+		t.Fatalf("worktree dirty after engine commit:\n%s", status)
+	}
+}
+
 func assertJSONWhenParsedArtifact(t *testing.T, path string) {
 	t.Helper()
 	if filepath.Base(path) != "parsed.json" {
@@ -259,6 +362,7 @@ func initGitRepo(t *testing.T, root string) {
 			t.Fatalf("git %v failed: %v\n%s", args, err, output)
 		}
 	}
+
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("test\n"), 0o644); err != nil {
 		t.Fatalf("write README: %v", err)
 	}
@@ -272,4 +376,15 @@ func initGitRepo(t *testing.T, root string) {
 			t.Fatalf("git %v failed: %v\n%s", args, err, output)
 		}
 	}
+}
+
+func runGitForTest(t *testing.T, root string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = root
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, output)
+	}
+	return string(output)
 }
