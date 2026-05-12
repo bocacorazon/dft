@@ -66,7 +66,7 @@ printf 'warn\n' >&2
 	if err := json.Unmarshal(rawArgv, &argv); err != nil {
 		t.Fatalf("argv transcript invalid JSON: %v\n%s", err, rawArgv)
 	}
-	if !containsSequence(argv, "--agent", "dft-intake.agent.md") || !containsSequence(argv, "-p", "Normalize demand") {
+	if !containsSequence(argv, "--agent", "dft-intake") || !containsSequence(argv, "-p", "Normalize demand") {
 		t.Fatalf("argv = %#v, want --agent and -p prompt", argv)
 	}
 }

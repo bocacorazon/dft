@@ -45,7 +45,7 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 	}
 	args := []string{
 		"-C", cmdDir,
-		"--agent", request.AgentName,
+		"--agent", copilotAgentName(request.AgentName),
 		"-p", request.Prompt,
 		"--allow-all",
 		"--no-ask-user",
@@ -79,6 +79,11 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 		return ports.AgentResponse{}, fmt.Errorf("copilot agent %q failed: %w: %s", request.AgentName, err, detail)
 	}
 	return ports.AgentResponse{Raw: stdout.String()}, nil
+}
+
+func copilotAgentName(name string) string {
+	base := filepath.Base(name)
+	return strings.TrimSuffix(base, ".agent.md")
 }
 
 func (a Adapter) writeTranscript(request ports.AgentRequest, argv []string, stdout []byte, stderr []byte) error {

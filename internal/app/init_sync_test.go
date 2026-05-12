@@ -26,6 +26,8 @@ func TestInitAndSyncProvisionDftAssets(t *testing.T) {
 		filepath.Join(".dft", "context", "constitution.md"),
 		filepath.Join(".dft", "context", "project.md"),
 		filepath.Join(".dft", "inbox", ".gitkeep"),
+		filepath.Join(".github", "agents", "dft-intake.agent.md"),
+		filepath.Join(".github", "agents", "speckit.implement.agent.md"),
 		filepath.Join(".github", "copilot", "agents", "dft-intake.agent.md"),
 		filepath.Join(".specify", "memory", "constitution.md"),
 		filepath.Join(".dft", "provisioning-manifest.json"),
