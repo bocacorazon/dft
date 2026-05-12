@@ -305,18 +305,18 @@ Return strict JSON for a demand package.
 
 func runDogfoodLoop(ctx context.Context, demandPackage domain.DemandPackage) error {
 	stub := agentstub.Adapter{}
-	planner := orchestration.SpecPlanner{
+	if _, err := (orchestration.MacroOrchestrator{
 		Agent: stub,
 		Worktrees: orchestration.WorktreeManager{
 			Git:          dryRunGit{defaultBranch: "main"},
 			WorktreeRoot: filepath.Join(".dft", "worktrees"),
 		},
 		ArtifactRoot: ".",
+		Verifier:     verify.Checker{RootDir: "."},
+		Review:       domain.ReviewDecision{Approved: true},
+	}).Execute(ctx, demandPackage); err != nil {
+		return fmt.Errorf("execute dogfood macro loop: %w", err)
 	}
-	if _, err := planner.PlanSpecs(ctx, demandPackage, "increment/"+demandPackage.ID); err != nil {
-		return fmt.Errorf("plan dogfood specs: %w", err)
-	}
-
 	runner := flow.Runner{Agent: stub, ArtifactRoot: ".", RunID: demandPackage.ID}
 	if _, err := runner.Execute(ctx, flow.Definition{Steps: []flow.Step{{
 		ID:        "dogfood-intake",
