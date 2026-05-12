@@ -21,7 +21,6 @@ import (
 	"github.com/bocacorazon/dft/internal/intake"
 	"github.com/bocacorazon/dft/internal/orchestration"
 	"github.com/bocacorazon/dft/internal/ports"
-	"github.com/bocacorazon/dft/internal/review"
 )
 
 const helpText = `dft is a headless workflow engine for spec-driven software production.
@@ -401,27 +400,36 @@ func runDogfoodLoop(ctx context.Context, demandPackage domain.DemandPackage, ada
 		return fmt.Errorf("run dogfood lane: %w", err)
 	}
 
-	evaluator := review.Evaluator{
-		Verifier: verify.Checker{RootDir: "."},
-		RunID:    demandPackage.ID,
-	}
-	if _, err := evaluator.Evaluate(ctx, []domain.Check{
+	dogfoodFeedback := verify.Checker{RootDir: "."}.Run(ctx, []domain.Check{
 		{ID: "wbs", Kind: domain.CheckFileExists, Args: []string{filepath.Join(".dft", "runs", demandPackage.ID, "design", "wbs.json")}},
 		{ID: "lane-assignments", Kind: domain.CheckFileExists, Args: []string{filepath.Join(".dft", "runs", demandPackage.ID, "design", "lane-assignments.json")}},
-	}); err != nil {
-		return fmt.Errorf("evaluate dogfood run: %w", err)
+	})
+	if dogfoodFeedback.Status != domain.VerdictPass {
+		return fmt.Errorf("evaluate dogfood feedback run: %s", dogfoodFeedback.Status)
+	}
+	if err := writeJSONFile(filepath.Join(".dft", "runs", demandPackage.ID, "dogfood-feedback-evaluation.json"), dogfoodFeedback); err != nil {
+		return fmt.Errorf("write dogfood feedback evaluation: %w", err)
 	}
 
 	next := demandPackage
 	next.ID = demandPackage.ID + "-next"
 	next.RawDemand = "Use dogfood findings to improve: " + demandPackage.RawDemand
-	content, err := json.MarshalIndent(next, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode next demand package: %w", err)
-	}
-	path := filepath.Join(".dft", "runs", demandPackage.ID, "next-demand-package.json")
-	if err := os.WriteFile(path, append(content, '\n'), 0o644); err != nil {
+	if err := writeJSONFile(filepath.Join(".dft", "runs", demandPackage.ID, "next-demand-package.json"), next); err != nil {
 		return fmt.Errorf("write next demand package: %w", err)
+	}
+	return nil
+}
+
+func writeJSONFile(path string, value any) error {
+	content, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode %s: %w", filepath.Base(path), err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create artifact directory: %w", err)
+	}
+	if err := os.WriteFile(path, append(content, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
 	}
 	return nil
 }

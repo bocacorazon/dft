@@ -33,6 +33,7 @@ func TestRunSubmitDogfoodStubCreatesFullFeedbackLoopArtifacts(t *testing.T) {
 		"steps/dogfood-intake/parsed.json",
 		"eval-plan.json",
 		"evaluation.json",
+		"dogfood-feedback-evaluation.json",
 		"macro-result.json",
 		"review/final-review.json",
 		"next-demand-package.json",
