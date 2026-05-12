@@ -47,11 +47,12 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 		"-C", cmdDir,
 		"--agent", copilotAgentName(request.AgentName),
 		"-p", request.Prompt,
-		"--allow-all",
 		"--no-ask-user",
-		"--autopilot",
 		"-s",
 		"--output-format", "text",
+	}
+	if request.AllowTools {
+		args = append(args, "--allow-all", "--autopilot")
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = cmdDir

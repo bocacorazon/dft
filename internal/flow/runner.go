@@ -64,6 +64,7 @@ type Step struct {
 	Type          StepType          `json:"type"`
 	AgentName     string            `json:"agent_name,omitempty"`
 	OutputMode    AgentOutputMode   `json:"output_mode,omitempty"`
+	AllowTools    bool              `json:"allow_tools,omitempty"`
 	Prompt        string            `json:"prompt,omitempty"`
 	Demand        string            `json:"demand,omitempty"`
 	Cwd           string            `json:"cwd,omitempty"`
@@ -741,12 +742,13 @@ func (r Runner) executeAgentStep(ctx context.Context, step Step, stepDir string)
 		return fmt.Errorf("write prompt artifact: %w", err)
 	}
 	response, err := r.Agent.Invoke(ctx, ports.AgentRequest{
-		AgentName: step.AgentName,
-		Prompt:    prompt,
-		Demand:    step.Demand,
-		RunID:     r.RunID,
-		Cwd:       step.Cwd,
-		Env:       step.Env,
+		AgentName:  step.AgentName,
+		Prompt:     prompt,
+		Demand:     step.Demand,
+		RunID:      r.RunID,
+		Cwd:        step.Cwd,
+		Env:        step.Env,
+		AllowTools: step.AllowTools,
 	})
 	if err != nil {
 		return fmt.Errorf("invoke agent step %q: %w", step.ID, err)

@@ -69,6 +69,36 @@ printf 'warn\n' >&2
 	if !containsSequence(argv, "--agent", "dft-intake") || !containsSequence(argv, "-p", "Normalize demand") {
 		t.Fatalf("argv = %#v, want --agent and -p prompt", argv)
 	}
+	if containsValue(argv, "--allow-all") {
+		t.Fatalf("argv = %#v, structured agent should not allow tools by default", argv)
+	}
+}
+
+func TestAdapterAllowsToolsOnlyWhenRequested(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-specific")
+	}
+	root := t.TempDir()
+	binary := filepath.Join(root, "fake-copilot")
+	if err := os.WriteFile(binary, []byte("#!/usr/bin/env sh\nprintf '{\"ok\":true}\\n'\n"), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	adapter := Adapter{Binary: binary, Cwd: root, TranscriptDir: filepath.Join(root, "transcripts"), Timeout: time.Second}
+
+	if _, err := adapter.Invoke(context.Background(), ports.AgentRequest{AgentName: "speckit.implement.agent.md", Prompt: "Implement", RunID: "run-123", AllowTools: true}); err != nil {
+		t.Fatalf("Invoke returned error: %v", err)
+	}
+	rawArgv, err := os.ReadFile(filepath.Join(root, "transcripts", "speckit.implement.agent.md", "argv.json"))
+	if err != nil {
+		t.Fatalf("read argv transcript: %v", err)
+	}
+	var argv []string
+	if err := json.Unmarshal(rawArgv, &argv); err != nil {
+		t.Fatalf("argv transcript invalid JSON: %v\n%s", err, rawArgv)
+	}
+	if !containsValue(argv, "--allow-all") || !containsValue(argv, "--autopilot") {
+		t.Fatalf("argv = %#v, tool-enabled agent should allow tools and autopilot", argv)
+	}
 }
 
 func TestAdapterReturnsContextForNonZeroExit(t *testing.T) {
@@ -95,6 +125,15 @@ func TestAdapterReturnsContextForNonZeroExit(t *testing.T) {
 func containsSequence(values []string, first string, second string) bool {
 	for i := 0; i+1 < len(values); i++ {
 		if values[i] == first && values[i+1] == second {
+			return true
+		}
+	}
+	return false
+}
+
+func containsValue(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
 			return true
 		}
 	}

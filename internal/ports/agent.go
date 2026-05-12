@@ -4,12 +4,13 @@ import "context"
 
 // AgentRequest captures one auditable invocation of an agent.
 type AgentRequest struct {
-	AgentName string
-	Prompt    string
-	Demand    string
-	RunID     string
-	Cwd       string
-	Env       map[string]string
+	AgentName  string
+	Prompt     string
+	Demand     string
+	RunID      string
+	Cwd        string
+	Env        map[string]string
+	AllowTools bool
 }
 
 // AgentResponse contains raw agent output before strict parsing.
