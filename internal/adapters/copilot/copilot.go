@@ -39,12 +39,28 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 		defer cancel()
 	}
 
-	cmdDir := a.Cwd
+	baseDir := a.Cwd
+	if baseDir == "" {
+		baseDir = "."
+	}
+	cmdDir := baseDir
 	if request.Cwd != "" {
-		cmdDir = request.Cwd
+		if filepath.IsAbs(request.Cwd) {
+			cmdDir = request.Cwd
+		} else {
+			cmdDir = filepath.Join(baseDir, request.Cwd)
+		}
+	}
+	absCmdDir, err := filepath.Abs(cmdDir)
+	if err != nil {
+		return ports.AgentResponse{}, fmt.Errorf("resolve copilot cwd: %w", err)
+	}
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return ports.AgentResponse{}, fmt.Errorf("resolve copilot base cwd: %w", err)
 	}
 	args := []string{
-		"-C", cmdDir,
+		"-C", absCmdDir,
 		"--agent", copilotAgentName(request.AgentName),
 		"-p", request.Prompt,
 		"--no-ask-user",
@@ -55,7 +71,7 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 		args = append(args, "--allow-all", "--autopilot")
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Dir = cmdDir
+	cmd.Dir = absBaseDir
 	cmd.Env = append(os.Environ(), a.Env...)
 	for key, value := range request.Env {
 		cmd.Env = append(cmd.Env, key+"="+value)
@@ -65,7 +81,7 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if writeErr := a.writeTranscript(request, args, stdout.Bytes(), stderr.Bytes()); writeErr != nil && err == nil {
 		return ports.AgentResponse{}, writeErr
 	}
