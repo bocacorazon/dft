@@ -35,6 +35,7 @@ It is **opinionated about three things**:
 | Term | Meaning |
 |---|---|
 | **Demand-package** | Output of Intent. A description plus acceptance criteria. **One demand-package = one unit of progress = one Eval gate.** |
+| **Increment** | The git-backed execution envelope for one demand-package: one increment branch, many spec branches, one final merge to the repo default branch. |
 | **Spec** | Unit of *work* a single coding-agent invocation can take on. The unit spec-kit operates on. |
 | **WBS** | The DAG of specs belonging to one demand-package. Authored by an agent in Solution Design. Append-only. |
 | **Lane** | A flow template (DSL file) that knows how to execute one spec. Assigned **per spec** by the Lane Selector. |
@@ -56,6 +57,10 @@ dft submit <demand>
   ├─ Intent phase
   │     run flows.intent  →  demand-package
   │
+  ├─ Increment setup
+  │     discover repo default branch
+  │     create increment branch from default branch HEAD
+  │
   ├─ Solution Design phase
   │     run flows.design   →  architecture blueprint
   │                          WBS (DAG of specs)
@@ -64,15 +69,19 @@ dft submit <demand>
   │
   ├─ Orchestration phase
   │     for each spec in WBS (sequential v1; worktree-per-spec):
-  │         create git worktree off base
+  │         create spec branch/worktree from current increment branch
   │         run the spec's lane flow
   │         commit step-by-step (one step = one commit)
-  │         merge worktree back on success
+  │         merge spec branch back to increment branch on success
   │
   ├─ Eval phase
   │     run flows.eval-plan-author  →  test plan
   │     execute test plan deterministically
   │                                   →  verdict (pass | fail + findings)
+  │
+  ├─ Final review / merge phase (only after pass)
+  │     review increment diff against default branch
+  │     merge increment branch back to default branch
   │
   └─ if fail:
         run flows.fix-planner
@@ -122,6 +131,34 @@ disk; the engine can crash and resume.
   commit" rule is strictly "every step that mutates local state
   produces exactly one commit."
 
+#### 4.3.1 Branch topology — increment branch owns integration
+
+- **Default branch is the release baseline.** At the start of each
+  increment, dft resolves the repository's default branch, updates or
+  verifies that ref, and creates a new increment branch from the default
+  branch HEAD. No spec work is based directly on the default branch.
+- **Spec branches are children of the increment branch.** For each spec,
+  dft creates a per-spec branch and worktree from the current increment
+  branch HEAD. In v1 specs run sequentially, so each later spec naturally
+  sees the prior successful specs after they have been merged back into
+  the increment branch; the same topology supports parallel spec
+  worktrees later.
+- **Spec Kit branch integration is current-HEAD based.** The
+  `speckit.specify` agent delegates branch creation to the mandatory
+  `before_specify` hook (`speckit.git.feature`). That git extension's
+  branch script creates the branch with `git checkout -b "$BRANCH_NAME"`
+  from the current HEAD. Therefore dft must invoke specify from a
+  worktree already checked out to the intended increment base.
+- **dft owns branch names.** When invoking the Spec Kit branch hook, dft
+  passes `GIT_BRANCH_NAME` so the hook uses the exact per-spec branch
+  name instead of generating one. dft also passes or records the exact
+  `SPECIFY_FEATURE_DIRECTORY` because the specify agent treats the spec
+  directory and git branch name as independent.
+- **Merges are staged.** Successful spec branches merge back only to the
+  increment branch. The increment branch merges back to the default
+  branch only after all specs complete, Eval passes, and the final code
+  review gate approves the full increment diff.
+
 ### 4.4 Lanes & spec-kit relationship
 
 - The `spec` lane is itself a flow written in dft's DSL. Its steps
@@ -157,7 +194,7 @@ disk; the engine can crash and resume.
 | Axis | v1 | Notes |
 |---|---|---|
 | 6a Step parallelism within a flow | Sequential only | Most flows are short and linear. |
-| 6b Spec parallelism within a demand-package | Sequential (cap=1), **but worktree-per-spec from day one** | Day we flip the cap to N, nothing else changes. |
+| 6b Spec parallelism within a demand-package | Sequential (cap=1), **but branch/worktree-per-spec from day one** | Spec branches are based on the increment branch; day we flip the cap to N, nothing else changes. |
 | 6c Multi-job (across submissions) | Single-job + FIFO queue | Multi-job lands with post-α storage. |
 | 6d Cancellation | SIGTERM → grace → SIGKILL; run state = `cancelled`; artifacts kept | No automatic worktree rollback. |
 | 6e Restart-from-failure | One step = at most one commit, with metadata trailers | Crash recovery scans recent commits and reconciles RunStore. |
@@ -284,8 +321,9 @@ DSL elements:
   interpretation, no pipes, no redirects. Stdin / env / cwd
   configurable on the step.
 - **`function` step closed set** (v1): `wait_for_human`, `set_var`,
-  `branch`, `merge`, `commit_message` (compose a commit message via
-  an agent without committing), `git_push`, `git_branch_current`,
+  `branch` (create/switch from an explicit base), `merge`,
+  `commit_message` (compose a commit message via an agent without
+  committing), `git_push`, `git_branch_current`, `git_default_branch`,
   `gh_pr_create`, `gh_pr_number_for_branch`, `gh_pr_merge`,
   `gh_pr_wait_checks`. The engine implements each; flows declare
   arguments declaratively. The closed set grows as patterns repeat.
@@ -390,7 +428,8 @@ abort the run before any LLM call is made.
 - **Template engine** — Jinja-style renderer with the named context.
 - **ArtifactRepository** (port) — git-native impl in v1.
 - **RunStore / JobStore** (port) — sqlite impl in v1.
-- **Worktree manager** — `git worktree` lifecycle for per-spec isolation.
+- **Worktree manager** — increment/spec branch creation, final merge
+  choreography, and `git worktree` lifecycle for per-spec isolation.
 - **Inbox** — surface for `escalate` / manual gates; backed by the `inbox_entries` table.
 
 ### 6.2 Crash-recovery contract

@@ -1,0 +1,27 @@
+# Go build/test artifacts
+*.exe
+*.test
+*.out
+coverage.out
+
+# Local environment and editor state
+.env
+.env.*
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+
+# dft transient runtime artifacts
+.dft/runs/
+.dft/worktrees/
+.dft/state.db
+
+# Keep durable project assets tracked:
+# - .github/agents/
+# - .specify/
+# - .dft/context/
+# - .dft/templates/
+# - .dft/schemas/
