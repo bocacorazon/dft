@@ -37,7 +37,7 @@ func (s Service) CreateDemandPackage(ctx context.Context, demand string) (domain
 		return domain.DemandPackage{}, fmt.Errorf("create intent artifact directory: %w", err)
 	}
 
-	prompt := "# dft-intake\n\nNormalize this demand into a demand package.\n\nDemand:\n" + demand + "\n"
+	prompt := "# dft-intake\n\nNormalize this demand into a demand package.\n\nRun ID:\n" + s.RunID + "\n\nDemand:\n" + demand + "\n"
 	if err := os.WriteFile(filepath.Join(intentDir, "prompt.md"), []byte(prompt), 0o644); err != nil {
 		return domain.DemandPackage{}, fmt.Errorf("write prompt artifact: %w", err)
 	}
@@ -58,6 +58,12 @@ func (s Service) CreateDemandPackage(ctx context.Context, demand string) (domain
 	var demandPackage domain.DemandPackage
 	if err := json.Unmarshal([]byte(response.Raw), &demandPackage); err != nil {
 		return domain.DemandPackage{}, fmt.Errorf("parse intake agent output: %w", err)
+	}
+	if demandPackage.ID == "" || demandPackage.ID == "unknown" {
+		demandPackage.ID = s.RunID
+	}
+	if strings.TrimSpace(demandPackage.RawDemand) == "" {
+		demandPackage.RawDemand = demand
 	}
 	if err := demandPackage.Validate(); err != nil {
 		return domain.DemandPackage{}, fmt.Errorf("validate demand package: %w", err)
