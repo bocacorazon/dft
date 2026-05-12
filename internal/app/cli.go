@@ -308,7 +308,6 @@ func runDogfoodLoop(ctx context.Context, demandPackage domain.DemandPackage) err
 		},
 		ArtifactRoot: ".",
 		Verifier:     verify.Checker{RootDir: "."},
-		Review:       domain.ReviewDecision{Approved: true},
 	}).Execute(ctx, demandPackage); err != nil {
 		return fmt.Errorf("execute dogfood macro loop: %w", err)
 	}

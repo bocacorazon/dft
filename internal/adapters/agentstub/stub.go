@@ -53,6 +53,10 @@ func (Adapter) Invoke(_ context.Context, request ports.AgentRequest) (ports.Agen
 				},
 			}},
 		})
+	case "dft-review.agent.md":
+		return marshal(domain.ReviewDecision{
+			Approved: true,
+		})
 	}
 
 	title := summarize(request.Demand)

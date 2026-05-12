@@ -34,6 +34,7 @@ func TestRunSubmitDogfoodStubCreatesFullFeedbackLoopArtifacts(t *testing.T) {
 		"eval-plan.json",
 		"evaluation.json",
 		"macro-result.json",
+		"review/final-review.json",
 		"next-demand-package.json",
 	} {
 		path := filepath.Join(runDir, relative)

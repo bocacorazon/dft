@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 
+	"github.com/bocacorazon/dft/internal/adapters/github"
 	"github.com/bocacorazon/dft/internal/domain"
 	"github.com/bocacorazon/dft/internal/ports"
 )
@@ -196,16 +198,7 @@ func (r Runner) executeStep(ctx context.Context, step Step, result *Result) (Ste
 			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
 		}
 	case StepFunction:
-		if step.Function != "set_var" {
-			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, fmt.Errorf("unsupported function %q", step.Function)
-		}
-		name := step.Args["name"]
-		value := step.Args["value"]
-		if name == "" {
-			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, fmt.Errorf("set_var requires name")
-		}
-		result.Vars[name] = value
-		if err := writeParsed(stepDir, map[string]string{name: value}); err != nil {
+		if err := r.executeFunctionStep(ctx, step, stepDir, result); err != nil {
 			return StepResult{ID: step.ID, Type: step.Type, Status: StepFailed}, err
 		}
 	case StepVerify:
@@ -217,6 +210,92 @@ func (r Runner) executeStep(ctx context.Context, step Step, result *Result) (Ste
 	}
 
 	return StepResult{ID: step.ID, Type: step.Type, Status: StepSucceeded}, nil
+}
+
+func (r Runner) executeFunctionStep(ctx context.Context, step Step, stepDir string, result *Result) error {
+	switch step.Function {
+	case "set_var":
+		name := step.Args["name"]
+		value := step.Args["value"]
+		if name == "" {
+			return fmt.Errorf("set_var requires name")
+		}
+		result.Vars[name] = value
+		return writeParsed(stepDir, map[string]string{name: value})
+	case "gh_pr_create":
+		record, err := githubAdapter(r.ArtifactRoot, step).CreatePR(ctx, github.PRRequest{
+			RunID:  r.RunID,
+			StepID: step.ID,
+			Head:   step.Args["head"],
+			Base:   step.Args["base"],
+			Title:  step.Args["title"],
+		})
+		if err != nil {
+			return err
+		}
+		if record.Number != 0 {
+			result.Vars["pr_number"] = strconv.Itoa(record.Number)
+		}
+		return writeParsed(stepDir, record)
+	case "gh_pr_number_for_branch":
+		record, err := githubAdapter(r.ArtifactRoot, step).PRNumberForBranch(ctx, github.BranchPRRequest{
+			RunID:  r.RunID,
+			StepID: step.ID,
+			Head:   step.Args["head"],
+		})
+		if err != nil {
+			return err
+		}
+		if record.Number != 0 {
+			result.Vars["pr_number"] = strconv.Itoa(record.Number)
+		}
+		return writeParsed(stepDir, record)
+	case "gh_pr_wait_checks":
+		number, err := stepPRNumber(step, result)
+		if err != nil {
+			return err
+		}
+		record, err := githubAdapter(r.ArtifactRoot, step).WaitChecks(ctx, github.CheckRequest{RunID: r.RunID, StepID: step.ID, Number: number})
+		if err != nil {
+			return err
+		}
+		return writeParsed(stepDir, record)
+	case "gh_pr_merge":
+		number, err := stepPRNumber(step, result)
+		if err != nil {
+			return err
+		}
+		record, err := githubAdapter(r.ArtifactRoot, step).MergePR(ctx, github.MergeRequest{RunID: r.RunID, StepID: step.ID, Number: number, Method: step.Args["method"]})
+		if err != nil {
+			return err
+		}
+		return writeParsed(stepDir, record)
+	default:
+		return fmt.Errorf("unsupported function %q", step.Function)
+	}
+}
+
+func githubAdapter(root string, step Step) github.Adapter {
+	return github.Adapter{
+		RootDir: root,
+		DryRun:  step.Args["dry_run"] != "false",
+		Binary:  step.Args["binary"],
+	}
+}
+
+func stepPRNumber(step Step, result *Result) (int, error) {
+	value := step.Args["number"]
+	if value == "" {
+		value = result.Vars["pr_number"]
+	}
+	if value == "" {
+		return 0, fmt.Errorf("%s requires PR number", step.Function)
+	}
+	number, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("parse PR number: %w", err)
+	}
+	return number, nil
 }
 
 func (r Runner) executeAgentStep(ctx context.Context, step Step, stepDir string) error {

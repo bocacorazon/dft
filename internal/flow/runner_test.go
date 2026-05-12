@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -138,6 +139,43 @@ func TestRunnerCanDisableProjectContext(t *testing.T) {
 	}
 	if strings.Contains(agent.prompt, "Use mandatory TDD.") {
 		t.Fatalf("agent prompt included context despite no_context: %q", agent.prompt)
+	}
+}
+
+func TestRunnerExecutesGitHubPRFunctionsWithRemoteAudit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh fixture is POSIX-specific")
+	}
+	root := t.TempDir()
+	binary := filepath.Join(root, "fake-gh")
+	if err := os.WriteFile(binary, []byte(`#!/usr/bin/env sh
+case "$1 $2" in
+  "pr create") printf '42\n' ;;
+  "pr checks") printf 'checks passed\n' ;;
+  "pr merge") printf 'merged\n' ;;
+  *) printf 'unexpected %s\n' "$*" >&2; exit 2 ;;
+esac
+`), 0o755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+	runner := Runner{ArtifactRoot: root, RunID: "run-123"}
+
+	result, err := runner.Execute(context.Background(), Definition{Steps: []Step{
+		{ID: "create-pr", Type: StepFunction, Function: "gh_pr_create", Args: map[string]string{"head": "increment/run-123", "base": "main", "title": "Run 123", "dry_run": "false", "binary": binary}},
+		{ID: "checks", Type: StepFunction, Function: "gh_pr_wait_checks", Args: map[string]string{"dry_run": "false", "binary": binary}},
+		{ID: "merge", Type: StepFunction, Function: "gh_pr_merge", Args: map[string]string{"dry_run": "false", "binary": binary}},
+	}})
+
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Vars["pr_number"] != "42" {
+		t.Fatalf("pr_number var = %q, want 42", result.Vars["pr_number"])
+	}
+	for _, stepID := range []string{"create-pr", "checks", "merge"} {
+		if _, err := os.Stat(filepath.Join(root, ".dft", "runs", "run-123", "remote", stepID+".json")); err != nil {
+			t.Fatalf("missing remote audit for %s: %v", stepID, err)
+		}
 	}
 }
 

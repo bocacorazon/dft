@@ -130,7 +130,24 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 
 	reviewDecision := m.Review
 	if !reviewDecision.Approved && len(reviewDecision.Findings) == 0 {
-		reviewDecision.Approved = true
+		reviewDecision, err = (review.FinalReviewer{
+			Agent:        m.Agent,
+			ArtifactRoot: m.ArtifactRoot,
+			RunID:        demandPackage.ID,
+		}).Review(ctx, demandPackage, increment.Branch)
+		if err != nil {
+			return MacroResult{}, fmt.Errorf("final review: %w", err)
+		}
+	}
+	result.Review = reviewDecision
+	if !reviewDecision.Approved {
+		if err := writeInboxReviewBlock(m.ArtifactRoot, demandPackage.ID, reviewDecision); err != nil {
+			return MacroResult{}, err
+		}
+		if err := writeMacroResult(m.ArtifactRoot, demandPackage.ID, result); err != nil {
+			return MacroResult{}, err
+		}
+		return result, fmt.Errorf("final review blocked increment with %d finding(s)", len(reviewDecision.Findings))
 	}
 	if err := m.Worktrees.CompleteIncrement(ctx, CompleteIncrementRequest{
 		IncrementBranch: increment.Branch,
@@ -141,7 +158,6 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 		return MacroResult{}, fmt.Errorf("complete increment: %w", err)
 	}
 
-	result.Review = reviewDecision
 	if err := writeMacroResult(m.ArtifactRoot, demandPackage.ID, result); err != nil {
 		return MacroResult{}, err
 	}
@@ -156,6 +172,21 @@ func writeMacroResult(root string, runID string, result MacroResult) error {
 	}
 	if err := os.WriteFile(path, append(content, '\n'), 0o644); err != nil {
 		return fmt.Errorf("write macro result: %w", err)
+	}
+	return nil
+}
+
+func writeInboxReviewBlock(root string, runID string, decision domain.ReviewDecision) error {
+	path := filepath.Join(root, ".dft", "inbox", "review-blocked-"+runID+".json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create inbox directory: %w", err)
+	}
+	content, err := json.MarshalIndent(decision, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode review block: %w", err)
+	}
+	if err := os.WriteFile(path, append(content, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write review block: %w", err)
 	}
 	return nil
 }

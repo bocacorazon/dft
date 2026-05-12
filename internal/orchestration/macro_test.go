@@ -89,6 +89,45 @@ func TestMacroOrchestratorWritesFixPlanAndSkipsFinalMergeOnFailedEval(t *testing
 	}
 }
 
+func TestMacroOrchestratorWritesInboxItemWhenFinalReviewBlocks(t *testing.T) {
+	root := t.TempDir()
+	git := &macroRecordingGit{defaultBranch: "main"}
+	orchestrator := MacroOrchestrator{
+		Agent:        agentstub.Adapter{},
+		Worktrees:    WorktreeManager{Git: git, WorktreeRoot: filepath.Join(root, ".dft", "worktrees")},
+		Verifier:     verify.Checker{RootDir: root},
+		ArtifactRoot: root,
+		Review: domain.ReviewDecision{
+			Approved: false,
+			Findings: []domain.Finding{{
+				Message: "review finding",
+			}},
+		},
+	}
+
+	result, err := orchestrator.Execute(context.Background(), domain.DemandPackage{
+		ID:        "run-123",
+		Title:     "Macro orchestrator",
+		RawDemand: "Macro orchestrator",
+		AcceptanceCriteria: []string{
+			"Full local increment lifecycle completes.",
+		},
+	})
+
+	if err == nil {
+		t.Fatalf("Execute returned nil error, want blocked review")
+	}
+	if result.Review.Approved {
+		t.Fatalf("review approved = true, want false")
+	}
+	if len(git.merges) != 1 {
+		t.Fatalf("merge count = %d, want only spec merge before review block", len(git.merges))
+	}
+	if _, err := os.Stat(filepath.Join(root, ".dft", "inbox", "review-blocked-run-123.json")); err != nil {
+		t.Fatalf("inbox review block missing: %v", err)
+	}
+}
+
 type macroRecordingGit struct {
 	defaultBranch string
 	merges        []ports.MergeRequest
