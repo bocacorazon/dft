@@ -124,3 +124,18 @@ func TestRunSubmitCopilotAdapterWithoutDryRun(t *testing.T) {
 		t.Fatalf("copilot argv transcript missing: %v", err)
 	}
 }
+
+func TestRunSubmitRejectsInvalidAgentTimeout(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"submit", "--adapter", "stub", "--agent-timeout", "nope", "Build intake loop"}, &stdout, &stderr)
+
+	if code != 2 {
+		t.Fatalf("Run returned exit code %d, want 2", code)
+	}
+	if got := stderr.String(); !strings.Contains(got, "--agent-timeout requires a positive duration") {
+		t.Fatalf("stderr = %q, want timeout error", got)
+	}
+}

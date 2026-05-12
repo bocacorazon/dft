@@ -79,6 +79,7 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 	dryRun := false
 	holdIncrement := false
 	evalRetries := 1
+	agentTimeout := 30 * time.Minute
 	var demandParts []string
 
 	for i := 0; i < len(args); i++ {
@@ -115,6 +116,18 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 				return 2
 			}
 			evalRetries = parsed
+		case "--agent-timeout":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "--agent-timeout requires a duration")
+				return 2
+			}
+			i++
+			parsed, err := time.ParseDuration(args[i])
+			if err != nil || parsed <= 0 {
+				fmt.Fprintln(stderr, "--agent-timeout requires a positive duration, for example 30m")
+				return 2
+			}
+			agentTimeout = parsed
 		default:
 			demandParts = append(demandParts, args[i])
 		}
@@ -124,7 +137,7 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 	if runID == "" {
 		runID = "run-" + time.Now().UTC().Format("20060102-150405")
 	}
-	adapter, err := selectAgentAdapter(adapterName, copilotBinary, runID)
+	adapter, err := selectAgentAdapter(adapterName, copilotBinary, runID, agentTimeout)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -192,7 +205,7 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
-func selectAgentAdapter(name string, copilotBinary string, runID string) (ports.AgentAdapter, error) {
+func selectAgentAdapter(name string, copilotBinary string, runID string, agentTimeout time.Duration) (ports.AgentAdapter, error) {
 	switch name {
 	case "stub":
 		return agentstub.Adapter{}, nil
@@ -201,7 +214,7 @@ func selectAgentAdapter(name string, copilotBinary string, runID string) (ports.
 			Binary:        copilotBinary,
 			Cwd:           ".",
 			TranscriptDir: filepath.Join(".dft", "runs", runID, "transcripts"),
-			Timeout:       10 * time.Minute,
+			Timeout:       agentTimeout,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown adapter %q", name)
