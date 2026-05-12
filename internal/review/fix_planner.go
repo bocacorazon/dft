@@ -2,6 +2,7 @@ package review
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 
@@ -28,9 +29,13 @@ func (p FixPlanner) Plan(ctx context.Context, demandPackage domain.DemandPackage
 	if len(result.Findings) == 0 {
 		return domain.WBSAmendment{}, fmt.Errorf("fix planner requires failed evaluation findings")
 	}
+	findings, err := json.MarshalIndent(result.Findings, "", "  ")
+	if err != nil {
+		return domain.WBSAmendment{}, fmt.Errorf("encode failed findings: %w", err)
+	}
 	response, err := p.Agent.Invoke(ctx, ports.AgentRequest{
 		AgentName: "dft-fix-planner.agent.md",
-		Prompt:    "Plan WBS amendments for failed evaluation findings.",
+		Prompt:    "Plan WBS amendments for failed evaluation or review findings.\n\nFindings:\n" + string(findings),
 		Demand:    demandPackage.RawDemand,
 		RunID:     p.RunID,
 	})

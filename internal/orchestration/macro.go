@@ -144,18 +144,41 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 		return result, fmt.Errorf("evaluation failed; WBS amendment written for %d finding(s)", len(evaluation.Findings))
 	}
 
-	reviewDecision := m.Review
-	if !reviewDecision.Approved && len(reviewDecision.Findings) == 0 {
-		reviewDecision, err = (review.FinalReviewer{
+	reviewDecision, err := m.reviewIncrement(ctx, demandPackage, increment.Branch)
+	if err != nil {
+		return MacroResult{}, err
+	}
+	result.Review = reviewDecision
+	for attempt := 0; !reviewDecision.Approved && attempt < m.MaxEvalRetries; attempt++ {
+		amendment, err := (review.FixPlanner{
 			Agent:        m.Agent,
 			ArtifactRoot: m.ArtifactRoot,
 			RunID:        demandPackage.ID,
-		}).Review(ctx, demandPackage, increment.Branch)
+		}).Plan(ctx, demandPackage, verificationFromReview(reviewDecision))
 		if err != nil {
-			return MacroResult{}, fmt.Errorf("final review: %w", err)
+			return MacroResult{}, fmt.Errorf("plan failed-review remediation: %w", err)
 		}
+		result.WBSAmendment = &amendment
+		remediationResults, err := m.executeSpecs(ctx, runner, demandPackage.ID, increment.Branch, amendment.RemediationSpecs, nil)
+		stepResults = append(stepResults, remediationResults...)
+		result.StepResults = stepResults
+		if err != nil {
+			return MacroResult{}, err
+		}
+		evaluation, err = evaluator.EvaluatePlan(ctx, evalPlan)
+		if err != nil {
+			return MacroResult{}, fmt.Errorf("evaluate review remediation attempt %d: %w", attempt+1, err)
+		}
+		result.Evaluation = evaluation
+		if evaluation.Status != domain.VerdictPass {
+			break
+		}
+		reviewDecision, err = m.reviewIncrement(ctx, demandPackage, increment.Branch)
+		if err != nil {
+			return MacroResult{}, err
+		}
+		result.Review = reviewDecision
 	}
-	result.Review = reviewDecision
 	if !reviewDecision.Approved {
 		if err := writeInboxReviewBlock(m.ArtifactRoot, demandPackage.ID, reviewDecision); err != nil {
 			return MacroResult{}, err
@@ -180,6 +203,29 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 		return MacroResult{}, err
 	}
 	return result, nil
+}
+
+func (m MacroOrchestrator) reviewIncrement(ctx context.Context, demandPackage domain.DemandPackage, incrementBranch string) (domain.ReviewDecision, error) {
+	reviewDecision := m.Review
+	if !reviewDecision.Approved && len(reviewDecision.Findings) == 0 {
+		var err error
+		reviewDecision, err = (review.FinalReviewer{
+			Agent:        m.Agent,
+			ArtifactRoot: m.ArtifactRoot,
+			RunID:        demandPackage.ID,
+		}).Review(ctx, demandPackage, incrementBranch)
+		if err != nil {
+			return domain.ReviewDecision{}, fmt.Errorf("final review: %w", err)
+		}
+	}
+	return reviewDecision, nil
+}
+
+func verificationFromReview(decision domain.ReviewDecision) domain.VerificationResult {
+	return domain.VerificationResult{
+		Status:   domain.VerdictFail,
+		Findings: decision.Findings,
+	}
 }
 
 func (m MacroOrchestrator) executeSpecs(ctx context.Context, runner flow.Runner, runID string, incrementBranch string, specs []domain.SpecRef, worktrees []SpecWorktree) ([]flow.StepResult, error) {

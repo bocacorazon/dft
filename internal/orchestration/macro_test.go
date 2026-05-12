@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -152,6 +153,42 @@ func TestMacroOrchestratorRetriesRemediationSpecsAfterFailedEval(t *testing.T) {
 	}
 }
 
+func TestMacroOrchestratorRetriesRemediationSpecsAfterBlockedReview(t *testing.T) {
+	root := t.TempDir()
+	git := &macroRecordingGit{defaultBranch: "main"}
+	agent := &reviewFailThenPassAgent{}
+	orchestrator := MacroOrchestrator{
+		Agent:          agent,
+		Worktrees:      WorktreeManager{Git: git, WorktreeRoot: filepath.Join(root, ".dft", "worktrees")},
+		Verifier:       verify.Checker{RootDir: root},
+		ArtifactRoot:   root,
+		MaxEvalRetries: 1,
+	}
+
+	result, err := orchestrator.Execute(context.Background(), domain.DemandPackage{
+		ID:                 "run-123",
+		Title:              "Macro orchestrator",
+		RawDemand:          "Macro orchestrator",
+		AcceptanceCriteria: []string{"Full local increment lifecycle completes."},
+	})
+
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Review.Approved {
+		t.Fatalf("review approved = false, want true after remediation")
+	}
+	if result.WBSAmendment == nil {
+		t.Fatalf("WBS amendment = nil, want review remediation record")
+	}
+	if agent.reviews != 2 {
+		t.Fatalf("review calls = %d, want initial review and retry", agent.reviews)
+	}
+	if len(git.merges) != 3 {
+		t.Fatalf("merge count = %d, want spec merge, remediation merge, final merge", len(git.merges))
+	}
+}
+
 func TestMacroOrchestratorWritesInboxItemWhenFinalReviewBlocks(t *testing.T) {
 	root := t.TempDir()
 	git := &macroRecordingGit{defaultBranch: "main"}
@@ -241,4 +278,32 @@ func (v *failThenPassVerifier) Run(context.Context, []domain.Check) domain.Verif
 		}
 	}
 	return domain.VerificationResult{Status: domain.VerdictPass}
+}
+
+type reviewFailThenPassAgent struct {
+	reviews int
+}
+
+func (a *reviewFailThenPassAgent) Invoke(ctx context.Context, request ports.AgentRequest) (ports.AgentResponse, error) {
+	if request.AgentName != "dft-review.agent.md" {
+		return agentstub.Adapter{}.Invoke(ctx, request)
+	}
+	a.reviews++
+	if a.reviews == 1 {
+		return marshalAgentResponse(domain.ReviewDecision{
+			Approved: false,
+			Findings: []domain.Finding{{
+				Message: "review finding",
+			}},
+		})
+	}
+	return marshalAgentResponse(domain.ReviewDecision{Approved: true})
+}
+
+func marshalAgentResponse(value any) (ports.AgentResponse, error) {
+	content, err := json.Marshal(value)
+	if err != nil {
+		return ports.AgentResponse{}, err
+	}
+	return ports.AgentResponse{Raw: string(content)}, nil
 }
