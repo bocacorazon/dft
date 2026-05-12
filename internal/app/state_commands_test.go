@@ -2,6 +2,8 @@ package app
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -24,6 +26,9 @@ func TestStatusInspectCancelAndResumeCommands(t *testing.T) {
 	}
 	if got := stdout.String(); !strings.Contains(got, "state-run") || !strings.Contains(got, "succeeded") {
 		t.Fatalf("status output = %q, want run and status", got)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".dft", "state.db")); err != nil {
+		t.Fatalf("state.db missing: %v", err)
 	}
 
 	stdout.Reset()

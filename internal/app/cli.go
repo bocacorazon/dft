@@ -141,7 +141,13 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	store := state.JSONStore{RootDir: "."}
 	manifest := domain.RunManifest{ID: runID, Status: domain.RunRunning, Adapter: adapterName, RawDemand: demandPackage.RawDemand}
-	if err := store.Save(manifest); err != nil {
+	sqlStore, err := state.OpenSQLiteStore(filepath.Join(".dft", "state.db"))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	defer sqlStore.Close()
+	if err := saveRunState(store, sqlStore, manifest); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
@@ -151,16 +157,15 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 			return 2
 		}
 		manifest.Status = domain.RunSucceeded
-		if err := store.Save(manifest); err != nil {
+		if err := saveRunState(store, sqlStore, manifest); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
 		fmt.Fprintf(stdout, "dogfood loop complete for run %s\n", runID)
 		return 0
 	}
-
 	manifest.Status = domain.RunSucceeded
-	if err := store.Save(manifest); err != nil {
+	if err := saveRunState(store, sqlStore, manifest); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
@@ -186,11 +191,24 @@ func selectAgentAdapter(name string, copilotBinary string, runID string) (ports.
 }
 
 func runStatus(stdout io.Writer, stderr io.Writer) int {
+	if sqlStore, err := state.OpenSQLiteStore(filepath.Join(".dft", "state.db")); err == nil {
+		defer sqlStore.Close()
+		manifests, err := sqlStore.List()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		return printManifests(manifests, stdout)
+	}
 	manifests, err := (state.JSONStore{RootDir: "."}).List()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	return printManifests(manifests, stdout)
+}
+
+func printManifests(manifests []domain.RunManifest, stdout io.Writer) int {
 	if len(manifests) == 0 {
 		fmt.Fprintln(stdout, "no runs")
 		return 0
@@ -220,18 +238,42 @@ func updateRunStatus(args []string, status domain.RunStatus, stdout io.Writer, s
 		return 2
 	}
 	store := state.JSONStore{RootDir: "."}
-	manifest, err := store.Load(args[0])
+	manifest, err := loadRunManifest(args[0], store)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	manifest.Status = status
-	if err := store.Save(manifest); err != nil {
+	sqlStore, err := state.OpenSQLiteStore(filepath.Join(".dft", "state.db"))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	defer sqlStore.Close()
+	if err := saveRunState(store, sqlStore, manifest); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	fmt.Fprintf(stdout, "%s\t%s\n", manifest.ID, manifest.Status)
 	return 0
+}
+
+func saveRunState(jsonStore state.JSONStore, sqlStore *state.SQLiteStore, manifest domain.RunManifest) error {
+	if err := jsonStore.Save(manifest); err != nil {
+		return err
+	}
+	if err := sqlStore.Save(manifest); err != nil {
+		return err
+	}
+	return nil
+}
+
+func loadRunManifest(id string, jsonStore state.JSONStore) (domain.RunManifest, error) {
+	if sqlStore, err := state.OpenSQLiteStore(filepath.Join(".dft", "state.db")); err == nil {
+		defer sqlStore.Close()
+		return sqlStore.Load(id)
+	}
+	return jsonStore.Load(id)
 }
 
 func walkRunArtifacts(runDir string, stdout io.Writer, stderr io.Writer) int {
