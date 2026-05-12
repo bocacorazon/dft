@@ -33,6 +33,26 @@ func (Adapter) Invoke(_ context.Context, request ports.AgentRequest) (ports.Agen
 			Lane:      "spec",
 			Rationale: "Stub bootstrap uses the full spec lane for deterministic coverage.",
 		}})
+	case "dft-eval-plan-author.agent.md":
+		return marshal(domain.EvaluationPlan{Checks: []domain.Check{
+			{ID: "wbs", Kind: domain.CheckFileExists, Args: []string{".dft/runs/" + request.RunID + "/design/wbs.json"}},
+			{ID: "lane-assignments", Kind: domain.CheckFileExists, Args: []string{".dft/runs/" + request.RunID + "/design/lane-assignments.json"}},
+		}})
+	case "dft-fix-planner.agent.md":
+		return marshal(domain.WBSAmendment{
+			DemandPackageID: request.RunID,
+			Findings: []domain.Finding{{
+				CheckID: "stub-finding",
+				Message: "Stub fix planner mirrors the failed evaluation into a remediation spec.",
+			}},
+			RemediationSpecs: []domain.SpecRef{{
+				ID:          "fix-" + slug(request.Demand),
+				Description: "Remediate failed evaluation findings for " + summarize(request.Demand),
+				AcceptanceCriteria: []string{
+					"Failed evaluation findings are corrected and the eval plan passes.",
+				},
+			}},
+		})
 	}
 
 	title := summarize(request.Demand)

@@ -20,14 +20,22 @@ type Evaluator struct {
 
 // Evaluate executes checks and writes `.dft/runs/<run-id>/evaluation.json`.
 func (e Evaluator) Evaluate(ctx context.Context, checks []domain.Check) (domain.VerificationResult, error) {
+	return e.EvaluatePlan(ctx, domain.EvaluationPlan{Checks: checks})
+}
+
+// EvaluatePlan executes an authored evaluation plan and writes `.dft/runs/<run-id>/evaluation.json`.
+func (e Evaluator) EvaluatePlan(ctx context.Context, plan domain.EvaluationPlan) (domain.VerificationResult, error) {
 	if e.Verifier == nil {
 		return domain.VerificationResult{}, fmt.Errorf("verifier is required")
 	}
 	if e.RunID == "" {
 		return domain.VerificationResult{}, fmt.Errorf("run id is required")
 	}
+	if err := plan.Validate(); err != nil {
+		return domain.VerificationResult{}, fmt.Errorf("validate eval plan: %w", err)
+	}
 
-	result := e.Verifier.Run(ctx, checks)
+	result := e.Verifier.Run(ctx, plan.Checks)
 	path := filepath.Join(e.ArtifactRoot, ".dft", "runs", e.RunID, "evaluation.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return domain.VerificationResult{}, fmt.Errorf("create evaluation artifact directory: %w", err)

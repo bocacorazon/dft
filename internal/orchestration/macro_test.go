@@ -50,6 +50,43 @@ func TestMacroOrchestratorRunsFullLocalIncrementLifecycle(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".dft", "runs", "run-123", "macro-result.json")); err != nil {
 		t.Fatalf("macro result artifact missing: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(root, ".dft", "runs", "run-123", "eval-plan.json")); err != nil {
+		t.Fatalf("eval plan artifact missing: %v", err)
+	}
+}
+
+func TestMacroOrchestratorWritesFixPlanAndSkipsFinalMergeOnFailedEval(t *testing.T) {
+	root := t.TempDir()
+	git := &macroRecordingGit{defaultBranch: "main"}
+	orchestrator := MacroOrchestrator{
+		Agent:        agentstub.Adapter{},
+		Worktrees:    WorktreeManager{Git: git, WorktreeRoot: filepath.Join(root, ".dft", "worktrees")},
+		Verifier:     failingVerifier{},
+		ArtifactRoot: root,
+		Review:       domain.ReviewDecision{Approved: true},
+	}
+
+	result, err := orchestrator.Execute(context.Background(), domain.DemandPackage{
+		ID:        "run-123",
+		Title:     "Macro orchestrator",
+		RawDemand: "Macro orchestrator",
+		AcceptanceCriteria: []string{
+			"Full local increment lifecycle completes.",
+		},
+	})
+
+	if err == nil {
+		t.Fatalf("Execute returned nil error, want failed evaluation")
+	}
+	if result.WBSAmendment == nil {
+		t.Fatalf("WBS amendment = nil, want remediation plan")
+	}
+	if len(git.merges) != 1 {
+		t.Fatalf("merge count = %d, want only spec merge before failed eval", len(git.merges))
+	}
+	if _, err := os.Stat(filepath.Join(root, ".dft", "runs", "run-123", "fix-plan", "wbs-amendment.json")); err != nil {
+		t.Fatalf("fix plan artifact missing: %v", err)
+	}
 }
 
 type macroRecordingGit struct {
@@ -72,4 +109,16 @@ func (g *macroRecordingGit) CreateWorktree(context.Context, ports.CreateWorktree
 func (g *macroRecordingGit) Merge(_ context.Context, request ports.MergeRequest) error {
 	g.merges = append(g.merges, request)
 	return nil
+}
+
+type failingVerifier struct{}
+
+func (failingVerifier) Run(context.Context, []domain.Check) domain.VerificationResult {
+	return domain.VerificationResult{
+		Status: domain.VerdictFail,
+		Findings: []domain.Finding{{
+			CheckID: "forced-failure",
+			Message: "forced failure",
+		}},
+	}
 }

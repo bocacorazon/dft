@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/bocacorazon/dft/internal/domain"
@@ -71,5 +72,41 @@ func TestCheckerEvaluatesJSONPathEquals(t *testing.T) {
 
 	if result.Status != domain.VerdictPass {
 		t.Fatalf("status = %q, want pass; findings=%#v", result.Status, result.Findings)
+	}
+}
+
+func TestCheckerEvaluatesCountMatchesAtLeastAndOS(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "log.txt"), []byte("pass\nfail\npass\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	checker := Checker{RootDir: root}
+	result := checker.Run(context.Background(), []domain.Check{
+		{ID: "count", Kind: domain.CheckCountMatchesAtLeast, Args: []string{"log.txt", "pass", "2"}},
+		{ID: "os", Kind: domain.CheckOS, Args: []string{runtime.GOOS}},
+	})
+
+	if result.Status != domain.VerdictPass {
+		t.Fatalf("status = %q, want pass; findings=%#v", result.Status, result.Findings)
+	}
+}
+
+func TestCheckerReportsCountMatchesAtLeastFailure(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "log.txt"), []byte("pass\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	checker := Checker{RootDir: root}
+	result := checker.Run(context.Background(), []domain.Check{
+		{ID: "count", Kind: domain.CheckCountMatchesAtLeast, Args: []string{"log.txt", "pass", "2"}},
+	})
+
+	if result.Status != domain.VerdictFail {
+		t.Fatalf("status = %q, want fail", result.Status)
+	}
+	if got := result.Findings[0].CheckID; got != "count" {
+		t.Fatalf("finding check id = %q, want count", got)
 	}
 }

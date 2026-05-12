@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/bocacorazon/dft/internal/domain"
@@ -114,6 +116,33 @@ func (c Checker) runOne(ctx context.Context, check domain.Check) domain.CheckRes
 			return failed(check.ID, fmt.Sprintf("json path %s = %q, want %q", check.Args[1], got, check.Args[2]))
 		}
 		return passed(check.ID)
+	case domain.CheckCountMatchesAtLeast:
+		if len(check.Args) != 3 {
+			return failed(check.ID, "count_matches_at_least requires path, substring, and minimum count arguments")
+		}
+		content, err := os.ReadFile(c.path(check.Args[0]))
+		if err != nil {
+			return failed(check.ID, fmt.Sprintf("read %s: %v", check.Args[0], err))
+		}
+		minimum, err := strconv.Atoi(check.Args[2])
+		if err != nil || minimum < 0 {
+			return failed(check.ID, fmt.Sprintf("minimum count must be a non-negative integer: %q", check.Args[2]))
+		}
+		count := strings.Count(string(content), check.Args[1])
+		if count < minimum {
+			return failed(check.ID, fmt.Sprintf("%s contains %q %d time(s), want at least %d", check.Args[0], check.Args[1], count, minimum))
+		}
+		return passed(check.ID)
+	case domain.CheckOS:
+		if len(check.Args) == 0 {
+			return failed(check.ID, "os requires at least one allowed GOOS argument")
+		}
+		for _, allowed := range check.Args {
+			if allowed == runtime.GOOS {
+				return passed(check.ID)
+			}
+		}
+		return failed(check.ID, fmt.Sprintf("runtime GOOS %q is not one of %q", runtime.GOOS, strings.Join(check.Args, ",")))
 	default:
 		return failed(check.ID, fmt.Sprintf("unsupported check kind %q", check.Kind))
 	}

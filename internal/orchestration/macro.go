@@ -27,7 +27,9 @@ type MacroResult struct {
 	Increment        Increment                 `json:"increment"`
 	SpecPlan         SpecPlanResult            `json:"spec_plan"`
 	StepResults      []flow.StepResult         `json:"step_results"`
+	EvalPlan         domain.EvaluationPlan     `json:"eval_plan"`
 	Evaluation       domain.VerificationResult `json:"evaluation"`
+	WBSAmendment     *domain.WBSAmendment      `json:"wbs_amendment,omitempty"`
 	Review           domain.ReviewDecision     `json:"review"`
 	FinalMergeTarget string                    `json:"final_merge_target"`
 }
@@ -85,16 +87,45 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 		}
 	}
 
+	evalPlan, err := (review.EvalPlanAuthor{
+		Agent:        m.Agent,
+		ArtifactRoot: m.ArtifactRoot,
+		RunID:        demandPackage.ID,
+	}).Author(ctx, demandPackage)
+	if err != nil {
+		return MacroResult{}, fmt.Errorf("author eval plan: %w", err)
+	}
+
 	evaluation, err := (review.Evaluator{
 		Verifier:     m.Verifier,
 		ArtifactRoot: m.ArtifactRoot,
 		RunID:        demandPackage.ID,
-	}).Evaluate(ctx, []domain.Check{
-		{ID: "wbs", Kind: domain.CheckFileExists, Args: []string{filepath.Join(".dft", "runs", demandPackage.ID, "design", "wbs.json")}},
-		{ID: "lane-assignments", Kind: domain.CheckFileExists, Args: []string{filepath.Join(".dft", "runs", demandPackage.ID, "design", "lane-assignments.json")}},
-	})
+	}).EvaluatePlan(ctx, evalPlan)
 	if err != nil {
 		return MacroResult{}, fmt.Errorf("evaluate increment: %w", err)
+	}
+	result := MacroResult{
+		Increment:        increment,
+		SpecPlan:         specPlan,
+		StepResults:      stepResults,
+		EvalPlan:         evalPlan,
+		Evaluation:       evaluation,
+		FinalMergeTarget: increment.DefaultBranch,
+	}
+	if evaluation.Status != domain.VerdictPass {
+		amendment, err := (review.FixPlanner{
+			Agent:        m.Agent,
+			ArtifactRoot: m.ArtifactRoot,
+			RunID:        demandPackage.ID,
+		}).Plan(ctx, demandPackage, evaluation)
+		if err != nil {
+			return MacroResult{}, fmt.Errorf("plan failed-eval remediation: %w", err)
+		}
+		result.WBSAmendment = &amendment
+		if err := writeMacroResult(m.ArtifactRoot, demandPackage.ID, result); err != nil {
+			return MacroResult{}, err
+		}
+		return result, fmt.Errorf("evaluation failed; WBS amendment written for %d finding(s)", len(evaluation.Findings))
 	}
 
 	reviewDecision := m.Review
@@ -110,14 +141,7 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 		return MacroResult{}, fmt.Errorf("complete increment: %w", err)
 	}
 
-	result := MacroResult{
-		Increment:        increment,
-		SpecPlan:         specPlan,
-		StepResults:      stepResults,
-		Evaluation:       evaluation,
-		Review:           reviewDecision,
-		FinalMergeTarget: increment.DefaultBranch,
-	}
+	result.Review = reviewDecision
 	if err := writeMacroResult(m.ArtifactRoot, demandPackage.ID, result); err != nil {
 		return MacroResult{}, err
 	}

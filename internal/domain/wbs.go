@@ -37,6 +37,44 @@ func (w WBS) Validate() error {
 	return nil
 }
 
+// WBSAmendment captures Fix-Planner remediation after failed evaluation.
+type WBSAmendment struct {
+	DemandPackageID     string          `json:"demand_package_id"`
+	Findings            []Finding       `json:"findings"`
+	RemediationSpecs    []SpecRef       `json:"remediation_specs,omitempty"`
+	ChildDemandPackages []DemandPackage `json:"child_demand_packages,omitempty"`
+}
+
+// Validate returns an error when no actionable remediation was produced.
+func (a WBSAmendment) Validate() error {
+	if a.DemandPackageID == "" {
+		return fmt.Errorf("demand package id is required")
+	}
+	if len(a.Findings) == 0 {
+		return fmt.Errorf("at least one finding is required")
+	}
+	if len(a.RemediationSpecs) == 0 && len(a.ChildDemandPackages) == 0 {
+		return fmt.Errorf("at least one remediation spec or child demand package is required")
+	}
+	for _, spec := range a.RemediationSpecs {
+		if spec.ID == "" {
+			return fmt.Errorf("remediation spec id is required")
+		}
+		if spec.Description == "" {
+			return fmt.Errorf("remediation spec %q description is required", spec.ID)
+		}
+		if len(spec.AcceptanceCriteria) == 0 {
+			return fmt.Errorf("remediation spec %q acceptance criteria are required", spec.ID)
+		}
+	}
+	for _, child := range a.ChildDemandPackages {
+		if err := child.Validate(); err != nil {
+			return fmt.Errorf("validate child demand package: %w", err)
+		}
+	}
+	return nil
+}
+
 // LaneAssignment binds a spec to a lane selected for execution.
 type LaneAssignment struct {
 	SpecID    string `json:"spec_id"`

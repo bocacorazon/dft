@@ -31,6 +31,7 @@ func TestRunSubmitDogfoodStubCreatesFullFeedbackLoopArtifacts(t *testing.T) {
 		"design/wbs.json",
 		"design/lane-assignments.json",
 		"steps/dogfood-intake/parsed.json",
+		"eval-plan.json",
 		"evaluation.json",
 		"macro-result.json",
 		"next-demand-package.json",
