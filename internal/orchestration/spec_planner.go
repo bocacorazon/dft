@@ -97,9 +97,13 @@ func (p SpecPlanner) buildWBS(ctx context.Context, demandPackage domain.DemandPa
 }
 
 func (p SpecPlanner) selectLanes(ctx context.Context, demandPackage domain.DemandPackage, wbs domain.WBS) ([]domain.LaneAssignment, error) {
+	wbsContent, err := json.MarshalIndent(wbs, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode WBS for lane selector: %w", err)
+	}
 	response, err := p.Agent.Invoke(ctx, ports.AgentRequest{
 		AgentName: "dft-lane-selector.agent.md",
-		Prompt:    "Select lanes for WBS: " + demandPackage.Title,
+		Prompt:    "Select lanes for this WBS. Return one assignment per spec in the WBS.\n\n" + string(wbsContent),
 		Demand:    demandPackage.RawDemand,
 		RunID:     demandPackage.ID,
 	})
@@ -114,16 +118,34 @@ func (p SpecPlanner) selectLanes(ctx context.Context, demandPackage domain.Deman
 	if err := domain.ValidateLaneAssignments(assignments); err != nil {
 		return nil, fmt.Errorf("validate lane assignments: %w", err)
 	}
+	if len(assignments) != len(wbs.Specs) {
+		return defaultLaneAssignments(wbs), nil
+	}
 	specIDs := make(map[string]struct{}, len(wbs.Specs))
 	for _, spec := range wbs.Specs {
 		specIDs[spec.ID] = struct{}{}
 	}
 	for _, assignment := range assignments {
 		if _, ok := specIDs[assignment.SpecID]; !ok {
-			return nil, fmt.Errorf("lane assignment references unknown spec %q", assignment.SpecID)
+			return defaultLaneAssignments(wbs), nil
 		}
 	}
+	if len(assignments) != len(wbs.Specs) {
+		return defaultLaneAssignments(wbs), nil
+	}
 	return assignments, nil
+}
+
+func defaultLaneAssignments(wbs domain.WBS) []domain.LaneAssignment {
+	assignments := make([]domain.LaneAssignment, 0, len(wbs.Specs))
+	for _, spec := range wbs.Specs {
+		assignments = append(assignments, domain.LaneAssignment{
+			SpecID:    spec.ID,
+			Lane:      "spec",
+			Rationale: "Defaulted by dft because lane selector output did not exactly match the WBS.",
+		})
+	}
+	return assignments
 }
 
 func writeJSON(path string, value any) error {
