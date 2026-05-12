@@ -3,8 +3,10 @@ package verify
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/bocacorazon/dft/internal/domain"
@@ -108,5 +110,51 @@ func TestCheckerReportsCountMatchesAtLeastFailure(t *testing.T) {
 	}
 	if got := result.Findings[0].CheckID; got != "count" {
 		t.Fatalf("finding check id = %q, want count", got)
+	}
+}
+
+func TestCheckerRejectsTrackedBinaryArtifacts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "app"), []byte{0x7f, 'E', 'L', 'F', 0x00}, 0o755); err != nil {
+		t.Fatalf("write binary fixture: %v", err)
+	}
+	runGit(t, root, "init")
+	runGit(t, root, "add", "app")
+
+	result := (Checker{RootDir: root}).Run(context.Background(), []domain.Check{
+		{ID: "no-binaries", Kind: domain.CheckNoBinaryArtifacts},
+	})
+
+	if result.Status != domain.VerdictFail {
+		t.Fatalf("status = %q, want fail", result.Status)
+	}
+	if got := result.Findings[0].Message; !strings.Contains(got, "app") {
+		t.Fatalf("finding message = %q, want binary path", got)
+	}
+}
+
+func TestCheckerAllowsTrackedSourceFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write source fixture: %v", err)
+	}
+	runGit(t, root, "init")
+	runGit(t, root, "add", "main.go")
+
+	result := (Checker{RootDir: root}).Run(context.Background(), []domain.Check{
+		{ID: "no-binaries", Kind: domain.CheckNoBinaryArtifacts},
+	})
+
+	if result.Status != domain.VerdictPass {
+		t.Fatalf("status = %q, want pass; findings=%#v", result.Status, result.Findings)
+	}
+}
+
+func runGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	command := exec.Command("git", args...)
+	command.Dir = root
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, output)
 	}
 }

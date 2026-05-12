@@ -21,6 +21,7 @@ const (
 	CheckJSONPathEquals      CheckKind = "json_path_equals"
 	CheckCountMatchesAtLeast CheckKind = "count_matches_at_least"
 	CheckOS                  CheckKind = "os"
+	CheckNoBinaryArtifacts   CheckKind = "no_binary_artifacts"
 )
 
 // Check is one deterministic verification predicate.

@@ -162,7 +162,7 @@ func dftEvalPlanAuthorAgent() string {
 	return managedAgent("dft Eval Plan Author Agent", "Author adversarial deterministic verification checks.", `Return only JSON with this shape:
 {"checks":[{"id":"check-id","kind":"command_exit_zero","args":["go","test","./..."]}]}
 
-Allowed kinds: file_exists, file_missing, command_exit_zero, grep_matches, json_path_equals, count_matches_at_least, os.
+Allowed kinds: file_exists, file_missing, command_exit_zero, grep_matches, json_path_equals, count_matches_at_least, os, no_binary_artifacts.
 Use argv arrays for commands and no shell interpretation. For Go apps, include go test ./... when applicable. Do not include markdown fences or commentary.`)
 }
 

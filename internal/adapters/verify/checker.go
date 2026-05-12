@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -143,8 +145,140 @@ func (c Checker) runOne(ctx context.Context, check domain.Check) domain.CheckRes
 			}
 		}
 		return failed(check.ID, fmt.Sprintf("runtime GOOS %q is not one of %q", runtime.GOOS, strings.Join(check.Args, ",")))
+	case domain.CheckNoBinaryArtifacts:
+		if len(check.Args) != 0 {
+			return failed(check.ID, "no_binary_artifacts does not accept arguments")
+		}
+		artifacts, err := c.binaryArtifacts(ctx)
+		if err != nil {
+			return failed(check.ID, err.Error())
+		}
+		if len(artifacts) > 0 {
+			return failed(check.ID, "tracked binary artifacts are not allowed: "+strings.Join(artifacts, ", "))
+		}
+		return passed(check.ID)
 	default:
 		return failed(check.ID, fmt.Sprintf("unsupported check kind %q", check.Kind))
+	}
+}
+
+func (c Checker) binaryArtifacts(ctx context.Context) ([]string, error) {
+	paths, err := c.trackedPaths(ctx)
+	if err != nil {
+		paths, err = c.walkSourcePaths()
+		if err != nil {
+			return nil, err
+		}
+	}
+	artifacts := make([]string, 0)
+	for _, path := range paths {
+		if isIgnoredArtifactPath(path) {
+			continue
+		}
+		info, err := os.Stat(c.path(path))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("stat %s: %w", path, err)
+		}
+		if info.IsDir() {
+			continue
+		}
+		binary, err := isBinaryArtifact(c.path(path), info)
+		if err != nil {
+			return nil, err
+		}
+		if binary {
+			artifacts = append(artifacts, path)
+		}
+	}
+	sort.Strings(artifacts)
+	return artifacts, nil
+}
+
+func (c Checker) trackedPaths(ctx context.Context) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "git", "ls-files", "-z")
+	cmd.Dir = c.RootDir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("list tracked files: %w", err)
+	}
+	parts := bytes.Split(output, []byte{0})
+	paths := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if len(part) == 0 {
+			continue
+		}
+		paths = append(paths, string(part))
+	}
+	return paths, nil
+}
+
+func (c Checker) walkSourcePaths() ([]string, error) {
+	var paths []string
+	root := c.RootDir
+	if root == "" {
+		root = "."
+	}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name := entry.Name()
+		if entry.IsDir() && (name == ".git" || name == ".dft") {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, filepath.ToSlash(relative))
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk source files: %w", err)
+	}
+	return paths, nil
+}
+
+func isIgnoredArtifactPath(path string) bool {
+	clean := filepath.ToSlash(path)
+	return strings.HasPrefix(clean, ".dft/") || strings.HasPrefix(clean, ".git/")
+}
+
+func isBinaryArtifact(path string, info os.FileInfo) (bool, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", path, err)
+	}
+	if hasExecutableMagic(content) {
+		return true, nil
+	}
+	if info.Mode()&0o111 != 0 && info.Size() > 1024*1024 {
+		return true, nil
+	}
+	return false, nil
+}
+
+func hasExecutableMagic(content []byte) bool {
+	if len(content) >= 4 && bytes.Equal(content[:4], []byte{0x7f, 'E', 'L', 'F'}) {
+		return true
+	}
+	if len(content) >= 2 && bytes.Equal(content[:2], []byte{'M', 'Z'}) {
+		return true
+	}
+	if len(content) < 4 {
+		return false
+	}
+	switch string(content[:4]) {
+	case "\xfe\xed\xfa\xce", "\xce\xfa\xed\xfe", "\xfe\xed\xfa\xcf", "\xcf\xfa\xed\xfe", "\xca\xfe\xba\xbe", "\xbe\xba\xfe\xca":
+		return true
+	default:
+		return false
 	}
 }
 

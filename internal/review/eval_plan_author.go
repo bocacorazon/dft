@@ -44,6 +44,7 @@ func (a EvalPlanAuthor) Author(ctx context.Context, demandPackage domain.DemandP
 	if err := agentjson.DecodeFirst(response.Raw, &plan); err != nil {
 		return domain.EvaluationPlan{}, fmt.Errorf("parse eval plan author output: %w", err)
 	}
+	plan = withMandatoryChecks(plan)
 	if err := plan.Validate(); err != nil {
 		return domain.EvaluationPlan{}, fmt.Errorf("validate eval plan: %w", err)
 	}
@@ -65,4 +66,17 @@ func writeJSON(path string, value any) error {
 		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
 	}
 	return nil
+}
+
+func withMandatoryChecks(plan domain.EvaluationPlan) domain.EvaluationPlan {
+	for _, check := range plan.Checks {
+		if check.ID == "no-binary-artifacts" || check.Kind == domain.CheckNoBinaryArtifacts {
+			return plan
+		}
+	}
+	plan.Checks = append(plan.Checks, domain.Check{
+		ID:   "no-binary-artifacts",
+		Kind: domain.CheckNoBinaryArtifacts,
+	})
+	return plan
 }
