@@ -59,6 +59,7 @@ type Step struct {
 	Function      string            `json:"function,omitempty"`
 	Args          map[string]string `json:"args,omitempty"`
 	MaxIterations int               `json:"max_iterations,omitempty"`
+	NoContext     bool              `json:"no_context,omitempty"`
 }
 
 // Runner executes typed flow definitions and writes per-step audit artifacts.
@@ -225,12 +226,23 @@ func (r Runner) executeAgentStep(ctx context.Context, step Step, stepDir string)
 	if step.AgentName == "" {
 		return fmt.Errorf("step %q agent name is required", step.ID)
 	}
-	if err := os.WriteFile(filepath.Join(stepDir, "prompt.md"), []byte(step.Prompt), 0o644); err != nil {
+	prompt := step.Prompt
+	if !step.NoContext {
+		contextualPrompt, hashes, err := attachProjectContext(r.ArtifactRoot, prompt)
+		if err != nil {
+			return err
+		}
+		prompt = contextualPrompt
+		if err := writeContextHashes(stepDir, hashes); err != nil {
+			return err
+		}
+	}
+	if err := os.WriteFile(filepath.Join(stepDir, "prompt.md"), []byte(prompt), 0o644); err != nil {
 		return fmt.Errorf("write prompt artifact: %w", err)
 	}
 	response, err := r.Agent.Invoke(ctx, ports.AgentRequest{
 		AgentName: step.AgentName,
-		Prompt:    step.Prompt,
+		Prompt:    prompt,
 		Demand:    step.Demand,
 		RunID:     r.RunID,
 		Cwd:       step.Cwd,

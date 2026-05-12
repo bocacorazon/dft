@@ -298,53 +298,6 @@ func walkRunArtifacts(runDir string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
-func provisionAssets(command string, stdout io.Writer, stderr io.Writer) int {
-	assets := map[string]string{
-		filepath.Join(".dft", "agents", "dft-intake.agent.md"): `---
-description: Normalize raw user demand into a demand package.
----
-
-# dft Intake Agent
-
-Return strict JSON for a demand package.
-`,
-		filepath.Join(".dft", "flows", "spec-lane.json"): `{
-  "max_spec_parallelism": 1,
-  "steps": [
-    {
-      "id": "implement",
-      "type": "agent",
-      "agent_name": "dft-intake.agent.md",
-      "prompt": "Execute the spec lane",
-      "max_iterations": 1
-    }
-  ]
-}
-`,
-		filepath.Join(".dft", "context", "constitution.md"): "# dft context\n\nFollow repository constitution and mandatory TDD.\n",
-	}
-	for path, content := range assets {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 2
-		}
-		if command == "init" {
-			if _, err := os.Stat(path); err == nil {
-				continue
-			} else if !os.IsNotExist(err) {
-				fmt.Fprintln(stderr, err)
-				return 2
-			}
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 2
-		}
-	}
-	fmt.Fprintf(stdout, "dft %s complete\n", command)
-	return 0
-}
-
 func runDogfoodLoop(ctx context.Context, demandPackage domain.DemandPackage) error {
 	stub := agentstub.Adapter{}
 	if _, err := (orchestration.MacroOrchestrator{
