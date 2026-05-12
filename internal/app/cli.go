@@ -39,16 +39,6 @@ Commands:
   help      Show this help text
 `
 
-var plannedCommands = map[string]struct{}{
-	"submit":  {},
-	"status":  {},
-	"inspect": {},
-	"cancel":  {},
-	"resume":  {},
-	"init":    {},
-	"sync":    {},
-}
-
 // Run executes the command-line entry point and returns a process exit code.
 func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
@@ -74,10 +64,6 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if command == "init" || command == "sync" {
 		return provisionAssets(command, stdout, stderr)
-	}
-	if _, ok := plannedCommands[command]; ok {
-		fmt.Fprintf(stderr, "dft %s is not implemented yet\n", command)
-		return 2
 	}
 
 	fmt.Fprintf(stderr, "unknown command %q\n\n", command)
