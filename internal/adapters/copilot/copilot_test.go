@@ -122,6 +122,51 @@ func TestAdapterReturnsContextForNonZeroExit(t *testing.T) {
 	}
 }
 
+func TestDispatchCommandPassesModelAndAgentName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-specific")
+	}
+	root := t.TempDir()
+	binary := filepath.Join(root, "fake-copilot")
+	if err := os.WriteFile(binary, []byte(`#!/usr/bin/env sh
+agent=""
+prompt=""
+model=""
+argv="$*"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --agent) shift; agent="$1" ;;
+    -p|--prompt) shift; prompt="$1" ;;
+    --model) shift; model="$1" ;;
+  esac
+  shift
+done
+printf '{"agent":"%s","prompt":"%s","model":"%s","argv":"%s"}\n' "$agent" "$prompt" "$model" "$argv"
+`), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	adapter := Adapter{Binary: binary, Cwd: root, Timeout: time.Second}
+
+	response, err := adapter.DispatchCommand(context.Background(), ports.CommandRequest{
+		Command: "speckit.specify",
+		Input:   "Build auth",
+		Model:   "gpt-5-mini",
+		RunID:   "run-123",
+	})
+	if err != nil {
+		t.Fatalf("DispatchCommand returned error: %v", err)
+	}
+	if !strings.Contains(response.Stdout, `"agent":"speckit.specify"`) {
+		t.Fatalf("stdout = %q, want command agent name", response.Stdout)
+	}
+	if !strings.Contains(response.Stdout, `"model":"gpt-5-mini"`) {
+		t.Fatalf("stdout = %q, want model flag forwarded", response.Stdout)
+	}
+	if !strings.Contains(response.Stdout, `"argv":"-p Build auth --agent speckit.specify --no-ask-user --model gpt-5-mini"`) {
+		t.Fatalf("stdout = %q, want command dispatch argv", response.Stdout)
+	}
+}
+
 func containsSequence(values []string, first string, second string) bool {
 	for i := 0; i+1 < len(values); i++ {
 		if values[i] == first && values[i+1] == second {

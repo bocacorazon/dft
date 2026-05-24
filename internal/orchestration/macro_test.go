@@ -51,7 +51,7 @@ func TestMacroOrchestratorRunsFullLocalIncrementLifecycle(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".dft", "runs", "run-123", "macro-result.json")); err != nil {
 		t.Fatalf("macro result artifact missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".dft", "runs", "run-123", "eval-plan.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, ".dft", "runs", "run-123", "eval", "eval-plan.json")); err != nil {
 		t.Fatalf("eval plan artifact missing: %v", err)
 	}
 }
@@ -228,6 +228,102 @@ func TestMacroOrchestratorWritesInboxItemWhenFinalReviewBlocks(t *testing.T) {
 	}
 }
 
+func TestMacroOrchestratorWritesSpecLaneJournal(t *testing.T) {
+	root := t.TempDir()
+	git := &macroRecordingGit{defaultBranch: "main"}
+	orchestrator := MacroOrchestrator{
+		Agent:        agentstub.Adapter{},
+		Worktrees:    WorktreeManager{Git: git, WorktreeRoot: filepath.Join(root, ".dft", "worktrees")},
+		Verifier:     verify.Checker{RootDir: root},
+		ArtifactRoot: root,
+		Review:       domain.ReviewDecision{Approved: true},
+	}
+
+	_, err := orchestrator.Execute(context.Background(), domain.DemandPackage{
+		ID:                 "run-123",
+		Title:              "Macro orchestrator",
+		RawDemand:          "Macro orchestrator",
+		AcceptanceCriteria: []string{"Full local increment lifecycle completes."},
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(root, ".dft", "runs", "run-123", "specs", "001-macro-orchestrator", "lane-journal.json"))
+	if err != nil {
+		t.Fatalf("read lane journal: %v", err)
+	}
+	var journal SpecKitLaneJournal
+	if err := json.Unmarshal(content, &journal); err != nil {
+		t.Fatalf("parse lane journal: %v", err)
+	}
+	if journal.SpecID != "001-macro-orchestrator" {
+		t.Fatalf("journal spec id = %q", journal.SpecID)
+	}
+	for _, stageID := range []SpecKitStageID{
+		SpecKitStageSpecify,
+		SpecKitStagePlan,
+		SpecKitStageTasks,
+		SpecKitStageAnalyze,
+		SpecKitStageImplement,
+		SpecKitStageCodeReview,
+		SpecKitStageIssueHandoff,
+	} {
+		attempt, ok := journal.AttemptForStage(stageID)
+		if !ok {
+			t.Fatalf("missing stage journal attempt for %q", stageID)
+		}
+		if attempt.Status != SpecKitStageSucceeded {
+			t.Fatalf("stage %q status = %q, want succeeded", stageID, attempt.Status)
+		}
+		if attempt.Attempt != 1 {
+			t.Fatalf("stage %q attempt = %d, want 1", stageID, attempt.Attempt)
+		}
+	}
+	if _, ok := journal.AttemptForStage(SpecKitStageMergeback); ok {
+		t.Fatal("mergeback journal entry present unexpectedly for non-git worktree")
+	}
+}
+
+func TestSpecLaneCompletedMergebackDetectsVerifiedLaneMergeback(t *testing.T) {
+	stepOutputs := map[string]map[string]any{
+		"mergeback-finalize": {
+			"status":      "merged",
+			"trees_equal": true,
+		},
+	}
+
+	if !specLaneCompletedMergeback(stepOutputs) {
+		t.Fatal("specLaneCompletedMergeback = false, want true")
+	}
+}
+
+func TestSpecLaneCompletedMergebackRequiresMergedStatus(t *testing.T) {
+	stepOutputs := map[string]map[string]any{
+		"mergeback-finalize": {
+			"status":      "skipped",
+			"trees_equal": true,
+		},
+	}
+
+	if specLaneCompletedMergeback(stepOutputs) {
+		t.Fatal("specLaneCompletedMergeback = true, want false")
+	}
+}
+
+func TestSpecLaneCompletedMergebackRequiresEqualTrees(t *testing.T) {
+	stepOutputs := map[string]map[string]any{
+		"mergeback-finalize": {
+			"status":      "merged",
+			"trees_equal": false,
+		},
+	}
+
+	if specLaneCompletedMergeback(stepOutputs) {
+		t.Fatal("specLaneCompletedMergeback = true, want false")
+	}
+}
+
 type macroRecordingGit struct {
 	defaultBranch string
 	merges        []ports.MergeRequest
@@ -282,6 +378,10 @@ func (v *failThenPassVerifier) Run(context.Context, []domain.Check) domain.Verif
 
 type reviewFailThenPassAgent struct {
 	reviews int
+}
+
+func (a *reviewFailThenPassAgent) DispatchCommand(ctx context.Context, request ports.CommandRequest) (ports.CommandResponse, error) {
+	return agentstub.Adapter{}.DispatchCommand(ctx, request)
 }
 
 func (a *reviewFailThenPassAgent) Invoke(ctx context.Context, request ports.AgentRequest) (ports.AgentResponse, error) {

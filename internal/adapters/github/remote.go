@@ -59,6 +59,22 @@ type BranchPRRequest struct {
 	Head   string `json:"head"`
 }
 
+// IssueRequest describes a GitHub issue creation operation.
+type IssueRequest struct {
+	RunID  string `json:"run_id"`
+	StepID string `json:"step_id"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
+}
+
+// IssueRecord is the remote-only audit record for an issue creation.
+type IssueRecord struct {
+	IssueRequest
+	RemoteOnly bool   `json:"remote_only"`
+	Status     string `json:"status"`
+	Output     string `json:"output,omitempty"`
+}
+
 // RemoteRecord is the audit record for a remote-only GitHub operation.
 type RemoteRecord struct {
 	Operation  string `json:"operation"`
@@ -164,6 +180,26 @@ func (a Adapter) MergePR(ctx context.Context, request MergeRequest) (RemoteRecor
 	}
 	if err := a.writeAudit(request.RunID, request.StepID, record); err != nil {
 		return RemoteRecord{}, err
+	}
+	return record, nil
+}
+
+// CreateIssue creates or dry-runs a GitHub issue and writes a remote-only audit record.
+func (a Adapter) CreateIssue(ctx context.Context, request IssueRequest) (IssueRecord, error) {
+	if request.RunID == "" || request.StepID == "" {
+		return IssueRecord{}, fmt.Errorf("run id and step id are required")
+	}
+	record := IssueRecord{IssueRequest: request, RemoteOnly: true, Status: "dry_run"}
+	if !a.DryRun {
+		out, err := a.run(ctx, "issue", "create", "--title", request.Title, "--body", request.Body)
+		if err != nil {
+			return IssueRecord{}, err
+		}
+		record.Output = out
+		record.Status = "created"
+	}
+	if err := a.writeAudit(request.RunID, request.StepID, record); err != nil {
+		return IssueRecord{}, err
 	}
 	return record, nil
 }

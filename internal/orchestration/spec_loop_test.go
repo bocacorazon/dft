@@ -42,6 +42,9 @@ func TestPlanSpecsBuildsWBSAndAssignsLanesWithoutCreatingSpecWorktrees(t *testin
 	if len(result.LaneAssignments) != 1 || result.LaneAssignments[0].Lane != "spec" {
 		t.Fatalf("lane assignments = %#v, want one spec lane", result.LaneAssignments)
 	}
+	if len(result.EvalSurfaceContract.Surfaces) != 1 {
+		t.Fatalf("eval surface count = %d, want 1", len(result.EvalSurfaceContract.Surfaces))
+	}
 	if len(result.Worktrees) != 0 {
 		t.Fatalf("worktree count = %d, want 0; worktrees must be created just-in-time from current increment", len(result.Worktrees))
 	}
@@ -49,7 +52,7 @@ func TestPlanSpecsBuildsWBSAndAssignsLanesWithoutCreatingSpecWorktrees(t *testin
 		t.Fatalf("created worktree during design = %#v, want none", git.createdWorktree)
 	}
 
-	for _, name := range []string{"wbs.json", "lane-assignments.json"} {
+	for _, name := range []string{"wbs.json", "lane-assignments.json", "eval-surfaces.json"} {
 		path := filepath.Join(root, ".dft", "runs", "run-123", "design", name)
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected design artifact %s: %v", name, err)

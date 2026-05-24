@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/bocacorazon/dft/internal/domain"
@@ -12,6 +14,17 @@ import (
 
 // Adapter deterministically converts supported agent requests into fixtures.
 type Adapter struct{}
+
+// DispatchCommand returns deterministic text for a named workflow command.
+func (Adapter) DispatchCommand(ctx context.Context, request ports.CommandRequest) (ports.CommandResponse, error) {
+	if err := writeSpecKitArtifacts(request); err != nil {
+		return ports.CommandResponse{}, err
+	}
+	return ports.CommandResponse{
+		Stdout:   "stub dispatched " + request.Command + "\n",
+		ExitCode: 0,
+	}, nil
+}
 
 // Invoke returns strict JSON for the requested stub agent.
 func (Adapter) Invoke(_ context.Context, request ports.AgentRequest) (ports.AgentResponse, error) {
@@ -33,7 +46,50 @@ func (Adapter) Invoke(_ context.Context, request ports.AgentRequest) (ports.Agen
 			Lane:      "spec",
 			Rationale: "Stub bootstrap uses the full spec lane for deterministic coverage.",
 		}})
+	case "dft-eval-surface-author.agent.md":
+		designWBSPath := ".dft/runs/" + request.RunID + "/design/wbs.json"
+		return marshal(domain.EvalSurfaceContract{
+			DemandPackageID: request.RunID,
+			Surfaces: []domain.EvalSurface{{
+				ID:               "stub-design-artifacts",
+				Kind:             domain.EvalSurfaceFile,
+				ArtifactRef:      designWBSPath,
+				AdapterFamily:    "file",
+				EnvironmentClass: domain.EvalEnvironmentEphemeral,
+				Readiness: []domain.ReadinessProbe{{
+					ID:   "wbs-artifact-exists",
+					Kind: domain.ReadinessFileExists,
+					Args: []string{designWBSPath},
+				}},
+			}},
+		})
 	case "dft-eval-plan-author.agent.md":
+		if strings.Contains(request.Prompt, "artifact-only BDD eval plan") {
+			return marshal(domain.EvalPlan{
+				DemandPackageID: request.RunID,
+				RequirementIDs:  []string{"REQ-STUB"},
+				Packs: []domain.BDDPack{{
+					ID:         "stub-file-pack",
+					SurfaceID:  "stub-design-artifacts",
+					Visibility: domain.EvalVisibilityHidden,
+					Scenarios: []domain.BDDScenario{{
+						ID:             "stub-file-exists",
+						Name:           "stub eval artifact exists",
+						RequirementIDs: []string{"REQ-STUB"},
+						Steps: []domain.BDDStep{{
+							Phase:  "then",
+							Action: "file.exists",
+							Args:   []string{".dft/runs/" + request.RunID + "/design/wbs.json"},
+						}},
+					}},
+				}},
+				Checks: []domain.Check{{
+					ID:   "stub-deterministic-eval",
+					Kind: domain.CheckFileExists,
+					Args: []string{".dft/runs/" + request.RunID + "/design/wbs.json"},
+				}},
+			})
+		}
 		return marshal(domain.EvaluationPlan{Checks: []domain.Check{
 			{ID: "wbs", Kind: domain.CheckFileExists, Args: []string{".dft/runs/" + request.RunID + "/design/wbs.json"}},
 			{ID: "lane-assignments", Kind: domain.CheckFileExists, Args: []string{".dft/runs/" + request.RunID + "/design/lane-assignments.json"}},
@@ -54,6 +110,10 @@ func (Adapter) Invoke(_ context.Context, request ports.AgentRequest) (ports.Agen
 			}},
 		})
 	case "dft-review.agent.md":
+		return marshal(domain.ReviewDecision{
+			Approved: true,
+		})
+	case "dft-code-review.agent.md":
 		return marshal(domain.ReviewDecision{
 			Approved: true,
 		})
@@ -105,4 +165,103 @@ func slug(demand string) string {
 		words[i] = strings.Trim(word, "-_.,:;!?")
 	}
 	return strings.Join(words, "-")
+}
+
+func writeSpecKitArtifacts(request ports.CommandRequest) error {
+	featureDir, ok := specKitFeatureDir(request)
+	if !ok {
+		return nil
+	}
+	if err := ensureSpecKitTemplates(request.Cwd); err != nil {
+		return err
+	}
+	switch request.Command {
+	case "speckit.specify":
+		if err := os.MkdirAll(filepath.Join(featureDir, "checklists"), 0o755); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Join(request.Cwd, ".specify"), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(featureDir, "spec.md"), []byte("# Spec\n"), 0o644); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(featureDir, "checklists", "requirements.md"), []byte("# Requirements\n"), 0o644); err != nil {
+			return err
+		}
+		content, err := json.MarshalIndent(map[string]string{
+			"feature_directory": filepath.ToSlash(request.Env["SPECIFY_FEATURE_DIRECTORY"]),
+		}, "", "  ")
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(request.Cwd, ".specify", "feature.json"), append(content, '\n'), 0o644)
+	case "speckit.plan":
+		if err := os.MkdirAll(filepath.Join(featureDir, "contracts"), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(featureDir, "plan.md"), []byte("# Plan\n"), 0o644); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(featureDir, "research.md"), []byte("# Research\n"), 0o644)
+	case "speckit.tasks":
+		if err := os.MkdirAll(featureDir, 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(featureDir, "tasks.md"), []byte("- [ ] Implement feature\n"), 0o644)
+	case "speckit.implement":
+		tasksPath := filepath.Join(featureDir, "tasks.md")
+		content, err := os.ReadFile(tasksPath)
+		if err != nil {
+			return err
+		}
+		updated := strings.ReplaceAll(string(content), "[ ]", "[X]")
+		if updated == string(content) {
+			updated += "- [X] Implement feature\n"
+		}
+		return os.WriteFile(tasksPath, []byte(updated), 0o644)
+	default:
+		return nil
+	}
+}
+
+func ensureSpecKitTemplates(root string) error {
+	if root == "" {
+		root = "."
+	}
+	templates := map[string]string{
+		filepath.Join(".specify", "templates", "spec-template.md"):  "# Spec Template\n",
+		filepath.Join(".specify", "templates", "plan-template.md"):  "# Plan Template\n",
+		filepath.Join(".specify", "templates", "tasks-template.md"): "# Tasks Template\n",
+	}
+	for relative, content := range templates {
+		path := filepath.Join(root, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if _, err := os.Stat(path); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func specKitFeatureDir(request ports.CommandRequest) (string, bool) {
+	relative := strings.TrimSpace(request.Env["SPECIFY_FEATURE_DIRECTORY"])
+	if relative == "" {
+		return "", false
+	}
+	if filepath.IsAbs(relative) {
+		return relative, true
+	}
+	base := request.Cwd
+	if base == "" {
+		base = "."
+	}
+	return filepath.Join(base, relative), true
 }

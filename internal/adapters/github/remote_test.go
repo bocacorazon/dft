@@ -50,6 +50,7 @@ case "$1 $2" in
   "pr list") printf '42\n' ;;
   "pr checks") printf 'checks passed\n' ;;
   "pr merge") printf 'merged\n' ;;
+  "issue create") printf 'https://github.example/issues/7\n' ;;
   *) printf 'unexpected %s\n' "$*" >&2; exit 2 ;;
 esac
 `), 0o755); err != nil {
@@ -73,7 +74,14 @@ esac
 	if _, err := adapter.MergePR(context.Background(), MergeRequest{RunID: "run-123", StepID: "merge", Number: 42}); err != nil {
 		t.Fatalf("MergePR returned error: %v", err)
 	}
-	for _, stepID := range []string{"create-pr", "number", "checks", "merge"} {
+	issue, err := adapter.CreateIssue(context.Background(), IssueRequest{RunID: "run-123", StepID: "issue-1", Title: "Follow-up", Body: "Details"})
+	if err != nil {
+		t.Fatalf("CreateIssue returned error: %v", err)
+	}
+	if issue.Status != "created" || issue.Output == "" {
+		t.Fatalf("issue record = %#v, want created issue output", issue)
+	}
+	for _, stepID := range []string{"create-pr", "number", "checks", "merge", "issue-1"} {
 		if _, err := os.Stat(filepath.Join(root, ".dft", "runs", "run-123", "remote", stepID+".json")); err != nil {
 			t.Fatalf("missing audit for %s: %v", stepID, err)
 		}

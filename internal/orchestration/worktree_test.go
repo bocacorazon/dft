@@ -48,6 +48,9 @@ func TestBeginSpecCreatesSpecBranchWorktreeAndSpecKitEnv(t *testing.T) {
 	if spec.WorktreePath != filepath.Join(".dft", "worktrees", "run-123", "001-intake") {
 		t.Fatalf("worktree path = %q", spec.WorktreePath)
 	}
+	if spec.IncrementBranch != "increment/run-123" {
+		t.Fatalf("increment branch = %q, want increment/run-123", spec.IncrementBranch)
+	}
 	want := ports.CreateWorktreeRequest{
 		Path:   filepath.Join(".dft", "worktrees", "run-123", "001-intake"),
 		Branch: "spec/run-123/001-intake",
@@ -56,8 +59,8 @@ func TestBeginSpecCreatesSpecBranchWorktreeAndSpecKitEnv(t *testing.T) {
 	if git.createdWorktree != want {
 		t.Fatalf("created worktree = %#v, want %#v", git.createdWorktree, want)
 	}
-	if got := spec.SpecKitEnv["GIT_BRANCH_NAME"]; got != "spec/run-123/001-intake" {
-		t.Fatalf("GIT_BRANCH_NAME = %q, want spec branch", got)
+	if got := spec.SpecKitEnv["GIT_BRANCH_NAME"]; got != "feature/001-intake" {
+		t.Fatalf("GIT_BRANCH_NAME = %q, want explicit Speckit feature branch", got)
 	}
 }
 

@@ -37,11 +37,12 @@ type SpecRequest struct {
 
 // SpecWorktree records per-spec branch/worktree metadata and Spec Kit env.
 type SpecWorktree struct {
-	RunID        string
-	SpecID       string
-	Branch       string
-	WorktreePath string
-	SpecKitEnv   map[string]string
+	RunID           string
+	SpecID          string
+	Branch          string
+	IncrementBranch string
+	WorktreePath    string
+	SpecKitEnv      map[string]string
 }
 
 // CompleteSpecRequest identifies a successful spec branch mergeback.
@@ -117,12 +118,13 @@ func (m WorktreeManager) BeginSpec(ctx context.Context, request SpecRequest) (Sp
 	}
 
 	return SpecWorktree{
-		RunID:        request.RunID,
-		SpecID:       request.SpecID,
-		Branch:       branch,
-		WorktreePath: path,
+		RunID:           request.RunID,
+		SpecID:          request.SpecID,
+		Branch:          branch,
+		IncrementBranch: request.IncrementBranch,
+		WorktreePath:    path,
 		SpecKitEnv: map[string]string{
-			"GIT_BRANCH_NAME": branch,
+			"GIT_BRANCH_NAME": SpecKitFeatureBranchName(request.SpecID),
 		},
 	}, nil
 }
@@ -185,4 +187,9 @@ func validateRef(name string, value string) error {
 		return fmt.Errorf("%s %q contains unsupported characters", name, value)
 	}
 	return nil
+}
+
+// SpecKitFeatureBranchName returns the explicit inner branch name passed to Speckit hooks.
+func SpecKitFeatureBranchName(specID string) string {
+	return "feature/" + specID
 }

@@ -20,6 +20,10 @@ const (
 	CheckGrepMatches         CheckKind = "grep_matches"
 	CheckJSONPathEquals      CheckKind = "json_path_equals"
 	CheckCountMatchesAtLeast CheckKind = "count_matches_at_least"
+	CheckCountMatchesEquals  CheckKind = "count_matches_equals"
+	CheckFileChecksumDiffers CheckKind = "file_checksum_differs"
+	CheckGitNoUnmergedFiles  CheckKind = "git_no_unmerged_files"
+	CheckStringEquals        CheckKind = "string_equals"
 	CheckOS                  CheckKind = "os"
 	CheckNoBinaryArtifacts   CheckKind = "no_binary_artifacts"
 )
@@ -40,8 +44,13 @@ type CheckResult struct {
 
 // Finding is an actionable failure discovered by verification or review.
 type Finding struct {
-	CheckID string `json:"check_id,omitempty"`
-	Message string `json:"message"`
+	CheckID   string `json:"check_id,omitempty"`
+	Severity  string `json:"severity,omitempty"`
+	Message   string `json:"message"`
+	Category  string `json:"category,omitempty"`
+	Location  string `json:"location,omitempty"`
+	Advice    string `json:"advice,omitempty"`
+	FindingID string `json:"finding_id,omitempty"`
 }
 
 // VerificationResult is the aggregate deterministic check result.

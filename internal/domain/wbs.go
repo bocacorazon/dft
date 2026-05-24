@@ -6,6 +6,7 @@ import "fmt"
 type SpecRef struct {
 	ID                 string   `json:"id"`
 	Description        string   `json:"description"`
+	PromptPath         string   `json:"prompt_path,omitempty"`
 	AcceptanceCriteria []string `json:"acceptance_criteria"`
 }
 
@@ -27,8 +28,8 @@ func (w WBS) Validate() error {
 		if spec.ID == "" {
 			return fmt.Errorf("spec id is required")
 		}
-		if spec.Description == "" {
-			return fmt.Errorf("spec %q description is required", spec.ID)
+		if spec.Description == "" && spec.PromptPath == "" {
+			return fmt.Errorf("spec %q description or prompt_path is required", spec.ID)
 		}
 		if len(spec.AcceptanceCriteria) == 0 {
 			return fmt.Errorf("spec %q acceptance criteria are required", spec.ID)
@@ -60,8 +61,8 @@ func (a WBSAmendment) Validate() error {
 		if spec.ID == "" {
 			return fmt.Errorf("remediation spec id is required")
 		}
-		if spec.Description == "" {
-			return fmt.Errorf("remediation spec %q description is required", spec.ID)
+		if spec.Description == "" && spec.PromptPath == "" {
+			return fmt.Errorf("remediation spec %q description or prompt_path is required", spec.ID)
 		}
 		if len(spec.AcceptanceCriteria) == 0 {
 			return fmt.Errorf("remediation spec %q acceptance criteria are required", spec.ID)

@@ -3,6 +3,8 @@ package verify
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -135,6 +137,59 @@ func (c Checker) runOne(ctx context.Context, check domain.Check) domain.CheckRes
 			return failed(check.ID, fmt.Sprintf("%s contains %q %d time(s), want at least %d", check.Args[0], check.Args[1], count, minimum))
 		}
 		return passed(check.ID)
+	case domain.CheckCountMatchesEquals:
+		if len(check.Args) != 3 {
+			return failed(check.ID, "count_matches_equals requires path, substring, and exact count arguments")
+		}
+		content, err := os.ReadFile(c.path(check.Args[0]))
+		if err != nil {
+			return failed(check.ID, fmt.Sprintf("read %s: %v", check.Args[0], err))
+		}
+		exact, err := strconv.Atoi(check.Args[2])
+		if err != nil || exact < 0 {
+			return failed(check.ID, fmt.Sprintf("exact count must be a non-negative integer: %q", check.Args[2]))
+		}
+		count := strings.Count(string(content), check.Args[1])
+		if count != exact {
+			return failed(check.ID, fmt.Sprintf("%s contains %q %d time(s), want exactly %d", check.Args[0], check.Args[1], count, exact))
+		}
+		return passed(check.ID)
+	case domain.CheckFileChecksumDiffers:
+		if len(check.Args) != 2 {
+			return failed(check.ID, "file_checksum_differs requires actual and template path arguments")
+		}
+		actualHash, err := fileSHA256(c.path(check.Args[0]))
+		if err != nil {
+			return failed(check.ID, fmt.Sprintf("hash %s: %v", check.Args[0], err))
+		}
+		templateHash, err := fileSHA256(c.path(check.Args[1]))
+		if err != nil {
+			return failed(check.ID, fmt.Sprintf("hash %s: %v", check.Args[1], err))
+		}
+		if actualHash == templateHash {
+			return failed(check.ID, fmt.Sprintf("%s checksum matches %s", check.Args[0], check.Args[1]))
+		}
+		return passed(check.ID)
+	case domain.CheckGitNoUnmergedFiles:
+		if len(check.Args) != 0 {
+			return failed(check.ID, "git_no_unmerged_files does not accept arguments")
+		}
+		output, err := c.gitOutput(ctx, "ls-files", "--unmerged")
+		if err != nil {
+			return failed(check.ID, err.Error())
+		}
+		if strings.TrimSpace(output) != "" {
+			return failed(check.ID, "repository has unmerged files")
+		}
+		return passed(check.ID)
+	case domain.CheckStringEquals:
+		if len(check.Args) != 2 {
+			return failed(check.ID, "string_equals requires actual and expected string arguments")
+		}
+		if check.Args[0] != check.Args[1] {
+			return failed(check.ID, fmt.Sprintf("actual value %q does not equal expected %q", check.Args[0], check.Args[1]))
+		}
+		return passed(check.ID)
 	case domain.CheckOS:
 		if len(check.Args) == 0 {
 			return failed(check.ID, "os requires at least one allowed GOOS argument")
@@ -198,13 +253,11 @@ func (c Checker) binaryArtifacts(ctx context.Context) ([]string, error) {
 }
 
 func (c Checker) trackedPaths(ctx context.Context) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "git", "ls-files", "-z")
-	cmd.Dir = c.RootDir
-	output, err := cmd.Output()
+	output, err := c.gitOutput(ctx, "ls-files", "-z")
 	if err != nil {
 		return nil, fmt.Errorf("list tracked files: %w", err)
 	}
-	parts := bytes.Split(output, []byte{0})
+	parts := bytes.Split([]byte(output), []byte{0})
 	paths := make([]string, 0, len(parts))
 	for _, part := range parts {
 		if len(part) == 0 {
@@ -213,6 +266,16 @@ func (c Checker) trackedPaths(ctx context.Context) ([]string, error) {
 		paths = append(paths, string(part))
 	}
 	return paths, nil
+}
+
+func (c Checker) gitOutput(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = c.RootDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s failed: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return string(output), nil
 }
 
 func (c Checker) walkSourcePaths() ([]string, error) {
@@ -310,4 +373,13 @@ func lookupJSONPath(document any, path string) (any, bool) {
 		}
 	}
 	return current, true
+}
+
+func fileSHA256(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:]), nil
 }

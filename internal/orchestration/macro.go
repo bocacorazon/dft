@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/bocacorazon/dft/internal/adapters/verify"
 	"github.com/bocacorazon/dft/internal/domain"
+	dfteval "github.com/bocacorazon/dft/internal/eval"
 	"github.com/bocacorazon/dft/internal/flow"
 	"github.com/bocacorazon/dft/internal/ports"
 	"github.com/bocacorazon/dft/internal/review"
@@ -30,7 +32,9 @@ type MacroResult struct {
 	Increment        Increment                 `json:"increment"`
 	SpecPlan         SpecPlanResult            `json:"spec_plan"`
 	StepResults      []flow.StepResult         `json:"step_results"`
-	EvalPlan         domain.EvaluationPlan     `json:"eval_plan"`
+	EvalPlan         domain.EvalPlan           `json:"eval_plan"`
+	EvalReady        domain.EvalReady          `json:"eval_ready"`
+	EvalResult       domain.EvalResult         `json:"eval_result"`
 	Evaluation       domain.VerificationResult `json:"evaluation"`
 	WBSAmendment     *domain.WBSAmendment      `json:"wbs_amendment,omitempty"`
 	Review           domain.ReviewDecision     `json:"review"`
@@ -67,31 +71,19 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 
 	runner := flow.Runner{
 		Agent:            m.Agent,
+		Dispatcher:       commandDispatcher(m.Agent),
 		ArtifactRoot:     m.ArtifactRoot,
 		RunID:            demandPackage.ID,
-		Verifier:         m.Verifier,
+		Verifier:         verify.Checker{RootDir: m.ArtifactRoot},
 		CommitLocalSteps: m.CommitLocalSteps,
+		AutoApproveGates: true,
 	}
 	stepResults, err := m.executeSpecs(ctx, runner, demandPackage.ID, increment.Branch, specPlan.WBS.Specs, specPlan.Worktrees)
 	if err != nil {
 		return MacroResult{}, err
 	}
 
-	evalPlan, err := (review.EvalPlanAuthor{
-		Agent:        m.Agent,
-		ArtifactRoot: m.ArtifactRoot,
-		RunID:        demandPackage.ID,
-	}).Author(ctx, demandPackage)
-	if err != nil {
-		return MacroResult{}, fmt.Errorf("author eval plan: %w", err)
-	}
-
-	evaluator := review.Evaluator{
-		Verifier:     m.Verifier,
-		ArtifactRoot: m.ArtifactRoot,
-		RunID:        demandPackage.ID,
-	}
-	evaluation, err := evaluator.EvaluatePlan(ctx, evalPlan)
+	evalRun, evaluation, err := m.evaluateIncrement(ctx, demandPackage, specPlan)
 	if err != nil {
 		return MacroResult{}, fmt.Errorf("evaluate increment: %w", err)
 	}
@@ -99,7 +91,9 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 		Increment:        increment,
 		SpecPlan:         specPlan,
 		StepResults:      stepResults,
-		EvalPlan:         evalPlan,
+		EvalPlan:         evalRun.Plan,
+		EvalReady:        evalRun.Ready,
+		EvalResult:       evalRun.Result,
 		Evaluation:       evaluation,
 		FinalMergeTarget: increment.DefaultBranch,
 		IncrementHeld:    m.HoldIncrement,
@@ -120,10 +114,13 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 		if err != nil {
 			return MacroResult{}, err
 		}
-		evaluation, err = evaluator.EvaluatePlan(ctx, evalPlan)
+		evalRun, evaluation, err = m.evaluateIncrement(ctx, demandPackage, specPlan)
 		if err != nil {
 			return MacroResult{}, fmt.Errorf("evaluate remediation attempt %d: %w", attempt+1, err)
 		}
+		result.EvalPlan = evalRun.Plan
+		result.EvalReady = evalRun.Ready
+		result.EvalResult = evalRun.Result
 		result.Evaluation = evaluation
 	}
 	if evaluation.Status != domain.VerdictPass {
@@ -165,14 +162,18 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 		if err != nil {
 			return MacroResult{}, err
 		}
-		evaluation, err = evaluator.EvaluatePlan(ctx, evalPlan)
+		evalRun, evaluation, err = m.evaluateIncrement(ctx, demandPackage, specPlan)
 		if err != nil {
 			return MacroResult{}, fmt.Errorf("evaluate review remediation attempt %d: %w", attempt+1, err)
 		}
+		result.EvalPlan = evalRun.Plan
+		result.EvalReady = evalRun.Ready
+		result.EvalResult = evalRun.Result
 		result.Evaluation = evaluation
 		if evaluation.Status != domain.VerdictPass {
 			break
 		}
+
 		reviewDecision, err = m.reviewIncrement(ctx, demandPackage, increment.Branch)
 		if err != nil {
 			return MacroResult{}, err
@@ -205,6 +206,26 @@ func (m MacroOrchestrator) Execute(ctx context.Context, demandPackage domain.Dem
 	return result, nil
 }
 
+func (m MacroOrchestrator) evaluateIncrement(ctx context.Context, demandPackage domain.DemandPackage, specPlan SpecPlanResult) (dfteval.Result, domain.VerificationResult, error) {
+	manifest := dfteval.ManifestFromSurfaceContract(demandPackage.ID, specPlan.EvalSurfaceContract)
+	evalRun, err := (dfteval.Orchestrator{
+		Agent:        m.Agent,
+		Verifier:     m.Verifier,
+		ArtifactRoot: m.ArtifactRoot,
+		RunID:        demandPackage.ID,
+	}).Run(ctx, dfteval.AuthorInput{
+		DemandPackage:    demandPackage,
+		WBS:              specPlan.WBS,
+		SurfaceContract:  specPlan.EvalSurfaceContract,
+		ArtifactManifest: manifest,
+		StepCatalog:      dfteval.DefaultStepCatalog(),
+	})
+	if err != nil {
+		return dfteval.Result{}, domain.VerificationResult{}, err
+	}
+	return evalRun, dfteval.ToVerificationResult(evalRun.Result), nil
+}
+
 func (m MacroOrchestrator) reviewIncrement(ctx context.Context, demandPackage domain.DemandPackage, incrementBranch string) (domain.ReviewDecision, error) {
 	reviewDecision := m.Review
 	if !reviewDecision.Approved && len(reviewDecision.Findings) == 0 {
@@ -233,9 +254,10 @@ func (m MacroOrchestrator) executeSpecs(ctx context.Context, runner flow.Runner,
 	for i, spec := range specs {
 		worktree := SpecWorktree{
 			Branch:       "spec/" + runID + "/" + spec.ID,
+			SpecID:       spec.ID,
 			WorktreePath: filepath.Join(".dft", "worktrees", runID, spec.ID),
 			SpecKitEnv: map[string]string{
-				"GIT_BRANCH_NAME": "spec/" + runID + "/" + spec.ID,
+				"GIT_BRANCH_NAME": SpecKitFeatureBranchName(spec.ID),
 			},
 		}
 		if i < len(worktrees) {
@@ -251,19 +273,66 @@ func (m MacroOrchestrator) executeSpecs(ctx context.Context, runner flow.Runner,
 				return stepResults, fmt.Errorf("begin spec %s: %w", spec.ID, err)
 			}
 		}
-		result, err := runner.Execute(ctx, BuildSpecKitLane(spec, worktree))
+		definition, err := LoadSpecKitLane(m.ArtifactRoot, spec, worktree)
+		if err != nil {
+			return stepResults, fmt.Errorf("load spec workflow %s: %w", spec.ID, err)
+		}
+		specRunner := runner
+		observer, err := newSpecKitLaneJournalObserver(m.ArtifactRoot, runID, spec.ID)
+		if err != nil {
+			return stepResults, fmt.Errorf("create lane journal observer for spec %s: %w", spec.ID, err)
+		}
+		specRunner.Observer = observer
+		result, err := specRunner.Execute(ctx, definition)
 		stepResults = append(stepResults, result.Steps...)
 		if err != nil {
 			return stepResults, fmt.Errorf("run spec %s: %w", spec.ID, err)
 		}
-		if err := m.Worktrees.CompleteSpec(ctx, CompleteSpecRequest{
-			SpecBranch:      worktree.Branch,
-			IncrementBranch: incrementBranch,
-		}); err != nil {
-			return stepResults, fmt.Errorf("complete spec %s: %w", spec.ID, err)
+		if !specLaneCompletedMergeback(result.StepOutputs) {
+			if err := m.Worktrees.CompleteSpec(ctx, CompleteSpecRequest{
+				SpecBranch:      worktree.Branch,
+				IncrementBranch: incrementBranch,
+			}); err != nil {
+				return stepResults, fmt.Errorf("complete spec %s: %w", spec.ID, err)
+			}
 		}
 	}
 	return stepResults, nil
+}
+
+func specLaneCompletedMergeback(stepOutputs map[string]map[string]any) bool {
+	output, ok := stepOutputs["mergeback-finalize"]
+	if !ok {
+		return false
+	}
+	return output["status"] == "merged" && output["trees_equal"] == true
+}
+
+func commandDispatcher(agent ports.AgentAdapter) ports.CommandDispatcher {
+	if dispatcher, ok := agent.(ports.CommandDispatcher); ok {
+		return dispatcher
+	}
+	return agentCommandDispatcher{agent: agent}
+}
+
+type agentCommandDispatcher struct {
+	agent ports.AgentAdapter
+}
+
+func (d agentCommandDispatcher) DispatchCommand(ctx context.Context, request ports.CommandRequest) (ports.CommandResponse, error) {
+	response, err := d.agent.Invoke(ctx, ports.AgentRequest{
+		AgentName:  request.Command + ".agent.md",
+		Prompt:     request.Input,
+		Demand:     request.Input,
+		RunID:      request.RunID,
+		Cwd:        request.Cwd,
+		Env:        request.Env,
+		AllowTools: request.AllowTools,
+	})
+	if err != nil {
+		return ports.CommandResponse{}, err
+	}
+	return ports.CommandResponse{Stdout: response.Raw, ExitCode: 0}, nil
 }
 
 func writeMacroResult(root string, runID string, result MacroResult) error {

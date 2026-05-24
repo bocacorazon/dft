@@ -1,0 +1,326 @@
+schema_version: "1.0"
+workflow:
+  id: "dft-speckit-base"
+  name: "dft Speckit Base Lane"
+  version: "1.0.0"
+  description: "Runs specify, plan, tasks, analysis, implement, review, issue handoff, and mergeback"
+inputs:
+  specify_input:
+    type: string
+    required: true
+  spec_id:
+    type: string
+    required: true
+  feature_directory:
+    type: string
+    required: true
+  speckit_branch:
+    type: string
+    required: true
+  increment_branch:
+    type: string
+    required: true
+  increment_branch_enabled:
+    type: string
+    required: true
+steps:
+  - id: specify
+    command: speckit.specify
+    integration: copilot
+    model: gpt-5-mini
+    allow_tools: true
+    no_context: true
+    env:
+      SPECIFY_FEATURE_DIRECTORY: "{{ inputs.feature_directory }}"
+    input:
+      args: "{{ inputs.specify_input }}"
+    verify:
+      - id: spec-file
+        kind: file_exists
+        args:
+          - "{{ steps.specify.output.artifacts.feature_directory }}/spec.md"
+      - id: spec-differs-template
+        kind: file_checksum_differs
+        args:
+          - "{{ steps.specify.output.artifacts.feature_directory }}/spec.md"
+          - ".specify/templates/spec-template.md"
+      - id: spec-requirements
+        kind: file_exists
+        args:
+          - "{{ steps.specify.output.artifacts.feature_directory }}/checklists/requirements.md"
+    on_error: retry(1)
+
+  - id: capture-feature-directory
+    type: function
+    function: set_var
+    args:
+      name: feature_directory
+      value: "{{ steps.specify.output.artifacts.feature_directory }}"
+
+  - id: ensure-speckit-branch
+    type: function
+    function: git_checkout_branch
+    when: "{{ inputs.speckit_branch }}"
+    args:
+      branch: "{{ inputs.speckit_branch }}"
+
+  - id: set-phase-input
+    type: function
+    function: set_var
+    args:
+      name: phase_input
+      value: "Spec ID: {{ inputs.spec_id }}\nFeature directory: {{ vars.feature_directory }}\n"
+
+  - id: set-plan-input
+    type: function
+    function: set_var
+    args:
+      name: plan_input
+      value: "Spec ID: {{ inputs.spec_id }}\nFeature directory: {{ vars.feature_directory }}\nInstruction: Update the existing plan artifacts at these exact paths. Replace all template placeholders with concrete values, remove unused example or option blocks, ensure every project tree or path example matches the chosen feature layout, use repository-relative paths only, use cmd/init-go-cli/main.go and internal/cli/version.go as the canonical package layout, do not introduce an internal/version package, preserve constitution-required test-first sequencing so failing tests are planned before any production Go code changes, allow foundational setup work only for directories, go.mod, scripts, and CI scaffolding before tests, and do not mark constitution or test gates as PASS unless the required checks have actually passed.\n"
+
+  - id: set-analyze-input
+    type: function
+    function: set_var
+    args:
+      name: analyze_input
+      value: "Spec ID: {{ inputs.spec_id }}\nFeature directory: {{ vars.feature_directory }}\nSpec file: {{ vars.feature_directory }}/spec.md\nPlan file: {{ vars.feature_directory }}/plan.md\nTasks file: {{ vars.feature_directory }}/tasks.md\nInstruction: Analyze the current spec, plan, and tasks at these exact paths. This is a pre-implementation analysis pass: evaluate whether required implementation artifacts are planned and verified by the tasks, and do not treat artifacts that will be created during implementation, such as go.mod or source files, as blocking findings when the plan and tasks explicitly create and validate them before implementation.\n"
+
+  - id: capture-workflow-branch
+    type: function
+    function: git_branch_current
+
+  - id: review-spec
+    type: gate
+    message: "Review the generated spec before planning."
+
+  - id: plan
+    command: speckit.plan
+    integration: copilot
+    model: gpt-5-mini
+    allow_tools: true
+    no_context: true
+    env:
+      SPECIFY_FEATURE_DIRECTORY: "{{ vars.feature_directory }}"
+    input:
+      args: "{{ vars.plan_input }}"
+    verify:
+      - id: plan-file
+        kind: file_exists
+        args:
+          - "{{ steps.plan.output.artifacts.plan_file }}"
+      - id: plan-differs-template
+        kind: file_checksum_differs
+        args:
+          - "{{ steps.plan.output.artifacts.plan_file }}"
+          - ".specify/templates/plan-template.md"
+      - id: research-file
+        kind: file_exists
+        args:
+          - "{{ steps.plan.output.artifacts.research_file }}"
+    on_error: retry(1)
+
+  - id: review-plan
+    type: gate
+    message: "Review the plan before generating tasks."
+
+  - id: set-tasks-input
+    type: function
+    function: set_var
+    args:
+      name: tasks_input
+      value: "Spec ID: {{ inputs.spec_id }}\nFeature directory: {{ vars.feature_directory }}\nInstruction: Generate tasks that cover every functional and quality requirement in spec.md and plan.md. Include explicit verification tasks for edge cases, dependency constraints, CI/test gates, and any measurable performance requirements. Use repository-relative paths only. Add an explicit prerequisite task that creates go.mod and enables 'go test ./...' before story implementation, preserve constitution-required test-first sequencing so every production Go code change is preceded by a failing Go test in the same scope, do not create production skeleton files before tests, keep FR-003 as the sole requirement that defines the allowed CLI surface, use FR-006 only for negative verification of that surface, and do not restate the allowed commands or flags in FR-006, add explicit negative tests and CI or checklist verification for the 'no extra commands/features' requirement, keep that prohibition separate from the unknown-flag behavior requirement, add an explicit verification task for the standard-library-only requirement, add an explicit task or annotation for deterministic audit-trail outputs required by QR-003, annotate every supporting task with traceability to the relevant functional and quality requirements including explicit Trace: FR-002 on binary wiring or build verification tasks and T001 to FR-007, use internal/cli/version.go as the canonical version-file location, do not introduce an internal/version package, require that '--version' output trimmed of trailing newline equals exactly '0.1.0' in unit, integration, and CI checks, reserve substring assertions for help output only, require help tests to assert stable substrings including 'Usage:', 'init-go-cli', and '--help', explicitly implement a deliberate unknown-flag contract so stderr contains the lowercase substring 'unknown flag' and '--help' guidance even if that requires a custom parser or wrapper, update contracts/cli-contract.md to document that contract, make Go 1.21 a firm plan/task constraint, and use deterministic substring-based assertions for unknown-flag output.\n"
+
+  - id: set-analysis-remediation-needed
+    type: function
+    function: set_var
+    args:
+      name: analysis_remediation_needed
+      value: ""
+
+  - id: tasks-analysis-loop
+    type: loop
+    max_iterations: 3
+    exit_when:
+      check_passes: no-blocking-analysis-findings
+    steps:
+      - id: specify-remediation
+        when: "{{ vars.analysis_remediation_needed }}"
+        command: speckit.specify
+        integration: copilot
+        model: gpt-5-mini
+        allow_tools: true
+        no_context: true
+        env:
+          SPECIFY_FEATURE_DIRECTORY: "{{ vars.feature_directory }}"
+        input:
+          args: "{{ inputs.specify_input }}\n\nInstruction: Update only the existing specification artifacts at {{ vars.feature_directory }} to remediate the latest CRITICAL and HIGH analysis findings while preserving agreed scope and implementation constraints. Consolidate duplicated no-args and help requirements into a single authoritative requirement, make unknown-flag acceptance text deterministic, define '--version' so stdout trimmed of trailing newline equals exactly '0.1.0' rather than merely containing it, reserve substring assertions for help output only, name stable required help substrings including 'Usage:', 'init-go-cli', and '--help', use internal/cli/version.go as the canonical version-file location, do not introduce an internal/version package, clarify that the standard-library-only rule applies to Go production and test code, keep FR-003 as the sole authoritative CLI-surface requirement that names only '--help' and '--version', make FR-005 the unknown-flag behavior contract, make FR-006 only the negative verification requirement for rejecting extra commands or features without restating the allowed CLI surface or duplicating FR-003 or FR-005 behavior, explicitly state that unknown-flag handling must deliberately emit the lowercase substring 'unknown flag' plus '--help' guidance even if that requires custom parsing or wrapping, update the contract expectations accordingly, explicitly require negative verification that no extra commands or features are added, remove stale wording that says tasks.md is still to be generated when it already exists, and keep any caller-provided module path or implementation constraints intentional rather than treating them as unresolved placeholders.\n"
+        verify:
+          - id: remediation-spec-file
+            kind: file_exists
+            args:
+              - "{{ steps.specify-remediation.output.artifacts.feature_directory }}/spec.md"
+          - id: remediation-spec-requirements
+            kind: file_exists
+            args:
+              - "{{ steps.specify-remediation.output.artifacts.feature_directory }}/checklists/requirements.md"
+      - id: plan-remediation
+        when: "{{ vars.analysis_remediation_needed }}"
+        command: speckit.plan
+        integration: copilot
+        model: gpt-5-mini
+        allow_tools: true
+        no_context: true
+        env:
+          SPECIFY_FEATURE_DIRECTORY: "{{ vars.feature_directory }}"
+        input:
+          args: "Spec ID: {{ inputs.spec_id }}\nFeature directory: {{ vars.feature_directory }}\nInstruction: Update the existing plan artifacts to remediate the latest CRITICAL and HIGH analysis findings while preserving agreed scope. Replace all template placeholders with concrete values, remove unused example or option blocks, ensure every path or structure example matches the chosen feature layout, use repository-relative paths only, use cmd/init-go-cli/main.go and internal/cli/version.go as the canonical package layout, do not introduce an internal/version package, describe '--version' as an exact trimmed equality contract to '0.1.0' across unit, integration, and CI checks, describe help verification with stable required substrings including 'Usage:', 'init-go-cli', and '--help', keep FR-003 as the sole requirement that defines the allowed CLI surface, describe FR-006 only as the negative verification of that surface, describe unknown-flag handling as a deliberate custom contract that emits the lowercase substring 'unknown flag' plus '--help' guidance, make Go 1.21 a firm constraint rather than a tentative plan, explicitly show test-first sequencing so failing tests are planned before any production Go code tasks, update any stale note so tasks.md is described as an existing generated artifact when present, and do not mark constitution or test gates as PASS unless the required checks have actually passed. When implementation artifacts such as go.mod do not exist yet, describe them as planned prerequisite work that must be completed before implementation rather than as permanent blockers when the task plan already creates and verifies them.\n"
+        verify:
+          - id: remediation-plan-file
+            kind: file_exists
+            args:
+              - "{{ steps.plan-remediation.output.artifacts.plan_file }}"
+          - id: remediation-research-file
+            kind: file_exists
+            args:
+              - "{{ steps.plan-remediation.output.artifacts.research_file }}"
+      - id: tasks
+        command: speckit.tasks
+        integration: copilot
+        model: gpt-5-mini
+        allow_tools: true
+        no_context: true
+        env:
+          SPECIFY_FEATURE_DIRECTORY: "{{ vars.feature_directory }}"
+        input:
+          args: "{{ vars.tasks_input }}"
+        verify:
+          - id: tasks-file
+            kind: file_exists
+            args:
+              - "{{ steps.tasks.output.artifacts.tasks_file }}"
+          - id: tasks-differs-template
+            kind: file_checksum_differs
+            args:
+              - "{{ steps.tasks.output.artifacts.tasks_file }}"
+              - ".specify/templates/tasks-template.md"
+        on_error: retry(1)
+      - id: analyze
+        command: speckit.analyze
+        integration: copilot
+        model: gpt-5-mini
+        allow_tools: true
+        no_context: true
+        env:
+          SPECIFY_FEATURE_DIRECTORY: "{{ vars.feature_directory }}"
+        input:
+          args: "{{ vars.analyze_input }}"
+      - id: analyze-clean
+        type: verify
+        checks:
+          - id: no-blocking-analysis-findings
+            kind: json_path_equals
+            args:
+              - "{{ inputs.artifact_root }}/.dft/runs/{{ inputs.run_id }}/steps/analyze/parsed.json"
+              - "summary.blocking_findings"
+              - "0"
+        on_error: continue
+      - id: set-remediation-tasks-input
+        type: function
+        function: set_var
+        args:
+          name: tasks_input
+          value: "Spec ID: {{ inputs.spec_id }}\nFeature directory: {{ vars.feature_directory }}\nInstruction: Remediate the findings HIGH and above before leaving tasks generation. Ensure tasks cover every functional and quality requirement, including edge cases, dependency constraints, CI/test gates, and measurable performance requirements. Use repository-relative paths only. Add an explicit prerequisite task that creates go.mod and enables 'go test ./...' before story work, preserve constitution-required test-first sequencing so every production Go code change is preceded by a failing Go test in the same scope, do not create production skeleton files before tests, keep FR-003 as the sole requirement that defines the allowed CLI surface, use FR-006 only for negative verification of that surface, and do not restate the allowed commands or flags in FR-006, add explicit negative tests and CI or checklist verification for the 'no extra commands/features' requirement, keep that prohibition separate from the unknown-flag behavior requirement, add an explicit verification task for the standard-library-only requirement, add an explicit task or annotation for deterministic audit-trail outputs required by QR-003, annotate every supporting task with traceability to the relevant functional and quality requirements including explicit Trace: FR-002 on binary wiring or build verification tasks and T001 to FR-007, use internal/cli/version.go as the canonical version-file location, do not introduce an internal/version package, require that '--version' output trimmed of trailing newline equals exactly '0.1.0' in unit, integration, and CI checks, reserve substring assertions for help output only, require help tests to assert stable substrings including 'Usage:', 'init-go-cli', and '--help', explicitly implement a deliberate unknown-flag contract so stderr contains the lowercase substring 'unknown flag' and '--help' guidance even if that requires a custom parser or wrapper, update contracts/cli-contract.md to document that contract, make Go 1.21 a firm plan/task constraint, and use deterministic substring-based assertions for unknown-flag output.\n"
+      - id: enable-analysis-remediation
+        type: function
+        function: set_var
+        args:
+          name: analysis_remediation_needed
+          value: "true"
+
+  - id: set-implement-input
+    type: function
+    function: set_var
+    args:
+      name: implement_input
+      value: "{{ vars.phase_input }}"
+
+  - id: implement-review-loop
+    type: loop
+    max_iterations: 4
+    on_error: continue
+    exit_when:
+      step_output_equals: "code-review.summary.blocking_findings=0"
+    steps:
+      - id: implement
+        command: speckit.implement
+        integration: copilot
+        model: gpt-5-mini
+        allow_tools: true
+        no_context: true
+        env:
+          SPECIFY_FEATURE_DIRECTORY: "{{ vars.feature_directory }}"
+        input:
+          args: "{{ vars.implement_input }}"
+      - id: code-review
+        type: agent
+        agent_name: dft-code-review.agent.md
+        allow_tools: true
+        no_context: true
+        prompt: |
+          Review the implementation in {{ vars.feature_directory }}.
+          Return strict JSON using the dft review schema with severity per finding.
+          Block only correctness, security, data-loss, auditability, or test coverage issues.
+      - id: set-remediation-implement-input
+        type: function
+        function: set_var
+        args:
+          name: implement_input
+          value: "Spec ID: {{ inputs.spec_id }}\nFeature directory: {{ vars.feature_directory }}\nInstruction: Remediate the remaining CRITICAL and HIGH review findings before finishing implementation.\n"
+
+  - id: issues-from-review
+    type: function
+    function: gh_issues_from_findings
+    args:
+      step: code-review
+      title_prefix: "Spec review follow-up"
+
+  - id: commit-before-mergeback
+    type: function
+    function: git_commit_all
+    when: "{{ inputs.increment_branch_enabled }}"
+    args:
+      message: "chore: finalize {{ vars.feature_directory }} before mergeback"
+
+  - id: mergeback-attempt
+    type: function
+    function: git_rebase_merge_back
+    when: "{{ inputs.increment_branch_enabled }}"
+    args:
+      source: "{{ vars.current_branch }}"
+      target: "{{ inputs.increment_branch }}"
+
+  - id: resolve-mergeback
+    type: agent
+    agent_name: dft-mergeback.agent.md
+    allow_tools: true
+    no_context: true
+    when: "{{ inputs.increment_branch_enabled }}"
+    prompt: |
+      Ensure branch {{ vars.current_branch }} is merged into {{ inputs.increment_branch }}.
+      If a rebase or merge conflict is in progress, resolve it and finish the operation.
+      If the repository is already clean and the source branch is already merged, do nothing.
+
+  - id: verify-mergeback
+    type: verify
+    when: "{{ inputs.increment_branch_enabled }}"
+    checks:
+      - id: mergeback-no-conflicts
+        kind: git_no_unmerged_files
+      - id: source-merged-into-increment
+        kind: command_exit_zero
+        args:
+          - "git"
+          - "merge-base"
+          - "--is-ancestor"
+          - "{{ vars.current_branch }}"
+          - "{{ inputs.increment_branch }}"

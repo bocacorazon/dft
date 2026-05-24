@@ -174,6 +174,50 @@ func TestRunnerCapturesTextAgentOutputWithoutJSONParsing(t *testing.T) {
 	}
 }
 
+func TestRunnerRetriesJSONAgentOutputWhenFirstResponseIsOnlyProse(t *testing.T) {
+	root := t.TempDir()
+	agent := &sequenceAgent{responses: []string{
+		"Inspecting the implementation before finalizing findings.\n",
+		`{"approved":true,"findings":[]}`,
+	}}
+	runner := Runner{
+		Agent:        agent,
+		ArtifactRoot: root,
+		RunID:        "run-123",
+	}
+
+	_, err := runner.Execute(context.Background(), Definition{Steps: []Step{{
+		ID:        "review",
+		Type:      StepAgent,
+		AgentName: "dft-code-review.agent.md",
+		Prompt:    "Review implementation",
+	}}})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if len(agent.prompts) != 2 {
+		t.Fatalf("agent invocations = %d, want 2", len(agent.prompts))
+	}
+	if !strings.Contains(agent.prompts[1], "Return ONLY a single valid JSON value") {
+		t.Fatalf("retry prompt = %q, want JSON-only suffix", agent.prompts[1])
+	}
+	stepDir := filepath.Join(root, ".dft", "runs", "run-123", "steps", "review")
+	firstAttempt, err := os.ReadFile(filepath.Join(stepDir, "stdout-attempt-1.txt"))
+	if err != nil {
+		t.Fatalf("read first-attempt artifact: %v", err)
+	}
+	if string(firstAttempt) != "Inspecting the implementation before finalizing findings.\n" {
+		t.Fatalf("first attempt = %q", firstAttempt)
+	}
+	finalStdout, err := os.ReadFile(filepath.Join(stepDir, "stdout.txt"))
+	if err != nil {
+		t.Fatalf("read final stdout: %v", err)
+	}
+	if string(finalStdout) != "{\"approved\":true,\"findings\":[]}" {
+		t.Fatalf("final stdout = %q", finalStdout)
+	}
+}
+
 func TestRunnerExecutesGitHubPRFunctionsWithRemoteAudit(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake gh fixture is POSIX-specific")
@@ -218,6 +262,7 @@ func TestRunnerExecutesAdditionalClosedSetFunctions(t *testing.T) {
 
 	result, err := runner.Execute(context.Background(), Definition{Steps: []Step{
 		{ID: "message", Type: StepFunction, Function: "commit_message", Args: map[string]string{"title": "feat: test", "body": "body"}},
+		{ID: "switch", Type: StepFunction, Function: "git_checkout_branch", Args: map[string]string{"branch": "feature/001-auth"}},
 		{ID: "current", Type: StepFunction, Function: "git_branch_current"},
 		{ID: "default", Type: StepFunction, Function: "git_default_branch"},
 		{ID: "push", Type: StepFunction, Function: "git_push", Args: map[string]string{"remote": "origin", "branch": "main"}},
@@ -229,8 +274,27 @@ func TestRunnerExecutesAdditionalClosedSetFunctions(t *testing.T) {
 	if result.Vars["commit_message"] == "" || result.Vars["current_branch"] == "" || result.Vars["default_branch"] == "" {
 		t.Fatalf("vars missing closed-set function outputs: %#v", result.Vars)
 	}
+	if result.Vars["current_branch"] != "feature/001-auth" {
+		t.Fatalf("current_branch = %q, want feature/001-auth", result.Vars["current_branch"])
+	}
 	if _, err := os.Stat(filepath.Join(root, ".dft", "runs", "run-123", "remote", "push.json")); err != nil {
 		t.Fatalf("missing git_push remote audit: %v", err)
+	}
+}
+
+func TestNormalizeBranchNameReturnsSwitchableBranch(t *testing.T) {
+	for _, tt := range []struct {
+		input string
+		want  string
+	}{
+		{input: "feature/001-auth", want: "feature/001-auth"},
+		{input: "refs/heads/feature/001-auth", want: "feature/001-auth"},
+		{input: "heads/feature/001-auth", want: "feature/001-auth"},
+		{input: " increment/run-123\n", want: "increment/run-123"},
+	} {
+		if got := normalizeBranchName(tt.input); got != tt.want {
+			t.Fatalf("normalizeBranchName(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }
 
@@ -262,8 +326,16 @@ func TestRunnerSupportsPerStepVerificationRetryContinueEscalateWorkflowAndLoop(t
 	if err := os.WriteFile(script, []byte("#!/usr/bin/env sh\nprintf '%s' \"$1\" > \"$2\"\n"), 0o755); err != nil {
 		t.Fatalf("write script: %v", err)
 	}
-	workflowPath := filepath.Join(root, "workflow.json")
-	if err := os.WriteFile(workflowPath, []byte(`{"steps":[{"id":"workflow-var","type":"function","function":"set_var","args":{"name":"workflow_value","value":"done"}}]}`), 0o644); err != nil {
+	workflowPath := filepath.Join(root, "workflow.yaml")
+	content := `steps:
+  - id: workflow-var
+    type: function
+    function: set_var
+    args:
+      name: workflow_value
+      value: done
+`
+	if err := os.WriteFile(workflowPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("write workflow: %v", err)
 	}
 	runner := Runner{
@@ -323,6 +395,40 @@ func TestRunnerSupportsPerStepVerificationRetryContinueEscalateWorkflowAndLoop(t
 	}
 }
 
+func TestRunnerLoopExitWhenMatchesStepOutput(t *testing.T) {
+	root := t.TempDir()
+	runner := Runner{
+		ArtifactRoot: root,
+		RunID:        "run-123",
+	}
+
+	result, err := runner.Execute(context.Background(), Definition{Steps: []Step{{
+		ID:            "loop",
+		Type:          StepLoop,
+		MaxIterations: 3,
+		ExitWhen:      map[string]string{"step_output_equals": "signal.ready=yes"},
+		Steps: []Step{{
+			ID:       "signal",
+			Type:     StepFunction,
+			Function: "set_var",
+			Args: map[string]string{
+				"name":  "ready",
+				"value": "yes",
+			},
+		}},
+	}}})
+
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if got := result.StepOutputs["loop"]["status"]; got != "succeeded" {
+		t.Fatalf("loop status = %#v, want succeeded", got)
+	}
+	if got := result.StepOutputs["loop"]["iterations"]; got != 1 {
+		t.Fatalf("loop iterations = %#v, want 1", got)
+	}
+}
+
 func TestRunnerCommitsLocalMutatingStepsWhenEnabled(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("git fixture uses POSIX sh")
@@ -351,6 +457,201 @@ func TestRunnerCommitsLocalMutatingStepsWhenEnabled(t *testing.T) {
 	status := runGitForTest(t, root, "status", "--porcelain")
 	if strings.TrimSpace(status) != "" {
 		t.Fatalf("worktree dirty after engine commit:\n%s", status)
+	}
+}
+
+func TestRunnerFinalizesSquashMergeBackAndDeletesBranches(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git fixture uses POSIX sh")
+	}
+	root := t.TempDir()
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	initGitRepo(t, root)
+	runGitForTest(t, root, "init", "--bare", remote)
+	runGitForTest(t, root, "remote", "add", "origin", remote)
+	runGitForTest(t, root, "push", "-u", "origin", "main")
+	runGitForTest(t, root, "switch", "-c", "feature/001-auth")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("feature change\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGitForTest(t, root, "commit", "-am", "feature change")
+	runGitForTest(t, root, "push", "-u", "origin", "feature/001-auth")
+
+	runner := Runner{ArtifactRoot: root, RunID: "run-123"}
+	result, err := runner.Execute(context.Background(), Definition{Steps: []Step{
+		{ID: "rebase", Type: StepFunction, Function: "git_rebase_merge_back", Args: map[string]string{"source": "feature/001-auth", "target": "main"}},
+		{ID: "finalize", Type: StepFunction, Function: "git_finalize_squash_merge_back", Args: map[string]string{"source": "feature/001-auth", "target": "main", "remote": "origin", "message": "chore: squash merge feature"}},
+	}})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	finalize := result.StepOutputs["finalize"]
+	if got := finalize["trees_equal"]; got != true {
+		t.Fatalf("trees_equal = %#v, want true", got)
+	}
+	if got := finalize["local_branch_deleted"]; got != true {
+		t.Fatalf("local_branch_deleted = %#v, want true", got)
+	}
+	if got := finalize["remote_branch_deleted_or_missing"]; got != true {
+		t.Fatalf("remote_branch_deleted_or_missing = %#v, want true", got)
+	}
+	if got := finalize["target_branch_released"]; got != true {
+		t.Fatalf("target_branch_released = %#v, want true", got)
+	}
+	if got := strings.TrimSpace(runGitForTest(t, root, "log", "-1", "--pretty=%s")); got != "chore: squash merge feature" {
+		t.Fatalf("last commit subject = %q", got)
+	}
+	if got := strings.TrimSpace(runGitForTest(t, root, "rev-parse", "--abbrev-ref", "HEAD")); got != "HEAD" {
+		t.Fatalf("current branch after finalize = %q, want detached HEAD", got)
+	}
+	if output := strings.TrimSpace(runGitForTest(t, root, "branch", "--list", "feature/001-auth")); output != "" {
+		t.Fatalf("feature branch still exists locally:\n%s", output)
+	}
+	if output := strings.TrimSpace(runGitForTest(t, root, "ls-remote", "--heads", "origin", "feature/001-auth")); output != "" {
+		t.Fatalf("feature branch still exists remotely:\n%s", output)
+	}
+}
+
+func TestRunnerFinalizesSquashMergeBackWithoutRemote(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git fixture uses POSIX sh")
+	}
+	root := t.TempDir()
+	initGitRepo(t, root)
+	runGitForTest(t, root, "switch", "-c", "feature/001-auth")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("feature change\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGitForTest(t, root, "commit", "-am", "feature change")
+
+	runner := Runner{ArtifactRoot: root, RunID: "run-123"}
+	result, err := runner.Execute(context.Background(), Definition{Steps: []Step{
+		{ID: "rebase", Type: StepFunction, Function: "git_rebase_merge_back", Args: map[string]string{"source": "feature/001-auth", "target": "main"}},
+		{ID: "finalize", Type: StepFunction, Function: "git_finalize_squash_merge_back", Args: map[string]string{"source": "feature/001-auth", "target": "main", "remote": "origin", "message": "chore: squash merge feature"}},
+	}})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	finalize := result.StepOutputs["finalize"]
+	if got := finalize["remote_branch_existed"]; got != false {
+		t.Fatalf("remote_branch_existed = %#v, want false when no remote is configured", got)
+	}
+	if got := finalize["remote_branch_deleted_or_missing"]; got != true {
+		t.Fatalf("remote_branch_deleted_or_missing = %#v, want true", got)
+	}
+}
+
+func TestRunnerFinalizesSquashMergeBackReleasesTargetBranchForLaterWorktree(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git fixture uses POSIX sh")
+	}
+	root := t.TempDir()
+	initGitRepo(t, root)
+	runGitForTest(t, root, "switch", "-c", "increment/run-123")
+	runGitForTest(t, root, "switch", "main")
+
+	firstWorktree := filepath.Join(t.TempDir(), "first")
+	runGitForTest(t, root, "worktree", "add", "-b", "feature/first", firstWorktree, "increment/run-123")
+	if err := os.WriteFile(filepath.Join(firstWorktree, "first.txt"), []byte("first\n"), 0o644); err != nil {
+		t.Fatalf("write first worktree file: %v", err)
+	}
+	runGitForTest(t, firstWorktree, "add", "first.txt")
+	runGitForTest(t, firstWorktree, "commit", "-m", "first change")
+	if _, err := (Runner{ArtifactRoot: firstWorktree, RunID: "run-123"}).Execute(context.Background(), Definition{Steps: []Step{
+		{ID: "rebase", Type: StepFunction, Function: "git_rebase_merge_back", Args: map[string]string{"source": "feature/first", "target": "increment/run-123"}},
+		{ID: "finalize", Type: StepFunction, Function: "git_finalize_squash_merge_back", Args: map[string]string{"source": "feature/first", "target": "increment/run-123", "message": "first squash"}},
+	}}); err != nil {
+		t.Fatalf("first mergeback returned error: %v", err)
+	}
+	if got := strings.TrimSpace(runGitForTest(t, firstWorktree, "rev-parse", "--abbrev-ref", "HEAD")); got != "HEAD" {
+		t.Fatalf("first worktree branch after finalize = %q, want detached HEAD", got)
+	}
+
+	secondWorktree := filepath.Join(t.TempDir(), "second")
+	runGitForTest(t, root, "worktree", "add", "-b", "feature/second", secondWorktree, "increment/run-123")
+	if err := os.WriteFile(filepath.Join(secondWorktree, "second.txt"), []byte("second\n"), 0o644); err != nil {
+		t.Fatalf("write second worktree file: %v", err)
+	}
+	runGitForTest(t, secondWorktree, "add", "second.txt")
+	runGitForTest(t, secondWorktree, "commit", "-m", "second change")
+	if _, err := (Runner{ArtifactRoot: secondWorktree, RunID: "run-123"}).Execute(context.Background(), Definition{Steps: []Step{
+		{ID: "rebase", Type: StepFunction, Function: "git_rebase_merge_back", Args: map[string]string{"source": "feature/second", "target": "increment/run-123"}},
+		{ID: "finalize", Type: StepFunction, Function: "git_finalize_squash_merge_back", Args: map[string]string{"source": "feature/second", "target": "increment/run-123", "message": "second squash"}},
+	}}); err != nil {
+		t.Fatalf("second mergeback returned error: %v", err)
+	}
+}
+
+func TestRunnerFinalizesSquashMergeBackWhenSourceBranchAlreadyDeleted(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git fixture uses POSIX sh")
+	}
+	root := t.TempDir()
+	initGitRepo(t, root)
+	runGitForTest(t, root, "switch", "-c", "feature/001-auth")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("feature change\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGitForTest(t, root, "commit", "-am", "feature change")
+	runGitForTest(t, root, "switch", "main")
+	runGitForTest(t, root, "merge", "--squash", "feature/001-auth")
+	runGitForTest(t, root, "commit", "-m", "chore: squash merge feature")
+	runGitForTest(t, root, "branch", "-D", "feature/001-auth")
+
+	runner := Runner{ArtifactRoot: root, RunID: "run-123"}
+	result, err := runner.Execute(context.Background(), Definition{Steps: []Step{{
+		ID:       "finalize",
+		Type:     StepFunction,
+		Function: "git_finalize_squash_merge_back",
+		Args:     map[string]string{"source": "feature/001-auth", "target": "main", "remote": "origin", "message": "chore: squash merge feature"},
+	}}})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	finalize := result.StepOutputs["finalize"]
+	if got := finalize["status"]; got != "already-finalized" {
+		t.Fatalf("status = %#v, want already-finalized", got)
+	}
+	if got := finalize["local_branch_deleted"]; got != true {
+		t.Fatalf("local_branch_deleted = %#v, want true", got)
+	}
+	if got := finalize["trees_equal"]; got != true {
+		t.Fatalf("trees_equal = %#v, want true", got)
+	}
+}
+
+func TestRunnerReportsRebaseConflictsForMergeBack(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git fixture uses POSIX sh")
+	}
+	root := t.TempDir()
+	initGitRepo(t, root)
+	runGitForTest(t, root, "switch", "-c", "feature/001-auth")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("feature change\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGitForTest(t, root, "commit", "-am", "feature change")
+	runGitForTest(t, root, "switch", "main")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("main change\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGitForTest(t, root, "commit", "-am", "main change")
+
+	runner := Runner{ArtifactRoot: root, RunID: "run-123"}
+	result, err := runner.Execute(context.Background(), Definition{Steps: []Step{{
+		ID:       "mergeback",
+		Type:     StepFunction,
+		Function: "git_rebase_merge_back",
+		Args:     map[string]string{"source": "feature/001-auth", "target": "main"},
+	}}})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if got := result.StepOutputs["mergeback"]["status"]; got != "conflict" {
+		t.Fatalf("mergeback status = %#v, want conflict", got)
+	}
+	if got := result.StepOutputs["mergeback"]["phase"]; got != "rebase" {
+		t.Fatalf("mergeback phase = %#v, want rebase", got)
 	}
 }
 
@@ -384,6 +685,21 @@ type staticTextAgent struct {
 
 func (a staticTextAgent) Invoke(context.Context, ports.AgentRequest) (ports.AgentResponse, error) {
 	return ports.AgentResponse{Raw: a.raw}, nil
+}
+
+type sequenceAgent struct {
+	responses []string
+	prompts   []string
+}
+
+func (a *sequenceAgent) Invoke(_ context.Context, request ports.AgentRequest) (ports.AgentResponse, error) {
+	a.prompts = append(a.prompts, request.Prompt)
+	if len(a.responses) == 0 {
+		return ports.AgentResponse{Raw: ""}, nil
+	}
+	response := a.responses[0]
+	a.responses = a.responses[1:]
+	return ports.AgentResponse{Raw: response}, nil
 }
 
 func initGitRepo(t *testing.T, root string) {

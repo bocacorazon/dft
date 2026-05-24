@@ -9,6 +9,7 @@ import (
 
 	"github.com/bocacorazon/dft/internal/agentjson"
 	"github.com/bocacorazon/dft/internal/domain"
+	dfteval "github.com/bocacorazon/dft/internal/eval"
 	"github.com/bocacorazon/dft/internal/ports"
 )
 
@@ -21,9 +22,10 @@ type SpecPlanner struct {
 
 // SpecPlanResult captures the design output needed by the spec loop.
 type SpecPlanResult struct {
-	WBS             domain.WBS
-	LaneAssignments []domain.LaneAssignment
-	Worktrees       []SpecWorktree
+	WBS                 domain.WBS
+	LaneAssignments     []domain.LaneAssignment
+	EvalSurfaceContract domain.EvalSurfaceContract
+	Worktrees           []SpecWorktree
 }
 
 // PlanSpecs turns a demand package into specs and lanes.
@@ -59,7 +61,16 @@ func (p SpecPlanner) PlanSpecs(ctx context.Context, demandPackage domain.DemandP
 		return SpecPlanResult{}, err
 	}
 
-	return SpecPlanResult{WBS: wbs, LaneAssignments: assignments}, nil
+	surfaceContract, err := (dfteval.SurfaceContractAuthor{
+		Agent:        p.Agent,
+		ArtifactRoot: p.ArtifactRoot,
+		RunID:        demandPackage.ID,
+	}).Author(ctx, demandPackage, wbs)
+	if err != nil {
+		return SpecPlanResult{}, fmt.Errorf("author eval surfaces: %w", err)
+	}
+
+	return SpecPlanResult{WBS: wbs, LaneAssignments: assignments, EvalSurfaceContract: surfaceContract}, nil
 }
 
 func (p SpecPlanner) buildWBS(ctx context.Context, demandPackage domain.DemandPackage) (domain.WBS, error) {

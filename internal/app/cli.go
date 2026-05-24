@@ -60,10 +60,10 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return updateRunStatus(args[1:], domain.RunCancelled, stdout, stderr)
 	}
 	if command == "resume" {
-		return updateRunStatus(args[1:], domain.RunRunning, stdout, stderr)
+		return runResume(args[1:], stdout, stderr)
 	}
 	if command == "init" || command == "sync" {
-		return provisionAssets(command, stdout, stderr)
+		return provisionAssets(command, args[1:], stdout, stderr)
 	}
 
 	fmt.Fprintf(stderr, "unknown command %q\n\n", command)
@@ -74,6 +74,7 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 	adapterName := "stub"
 	dogfood := false
+	fullProcess := false
 	copilotBinary := ""
 	dryRun := false
 	holdIncrement := false
@@ -101,6 +102,8 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 			dryRun = true
 		case "--dogfood":
 			dogfood = true
+		case "--full", "--execute":
+			fullProcess = true
 		case "--hold-increment", "--no-merge":
 			holdIncrement = true
 		case "--eval-retries":
@@ -173,14 +176,24 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	if dogfood {
-		if err := runDogfoodLoop(context.Background(), demandPackage, adapter, dryRun, holdIncrement, evalRetries); err != nil {
+	if fullProcess || dogfood {
+		if err := runFullProcessLoop(context.Background(), demandPackage, adapter, dryRun, holdIncrement, evalRetries); err != nil {
 			manifest.Status = domain.RunFailed
 			if stateErr := recordFailedRun(store, sqlStore, jobID, manifest); stateErr != nil {
 				fmt.Fprintf(stderr, "record failure state: %v\n", stateErr)
 			}
 			fmt.Fprintln(stderr, err)
 			return 2
+		}
+		if dogfood {
+			if err := runDogfoodFeedbackLoop(context.Background(), demandPackage, adapter, dryRun); err != nil {
+				manifest.Status = domain.RunFailed
+				if stateErr := recordFailedRun(store, sqlStore, jobID, manifest); stateErr != nil {
+					fmt.Fprintf(stderr, "record failure state: %v\n", stateErr)
+				}
+				fmt.Fprintln(stderr, err)
+				return 2
+			}
 		}
 		manifest.Status = domain.RunSucceeded
 		if err := sqlStore.SetJobStatus(jobID, domain.JobDone); err != nil {
@@ -191,7 +204,11 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
-		fmt.Fprintf(stdout, "dogfood loop complete for run %s\n", runID)
+		if dogfood {
+			fmt.Fprintf(stdout, "dogfood loop complete for run %s\n", runID)
+			return 0
+		}
+		fmt.Fprintf(stdout, "full process complete for run %s\n", runID)
 		return 0
 	}
 	manifest.Status = domain.RunSucceeded
@@ -249,6 +266,9 @@ func printManifests(manifests []domain.RunManifest, stdout io.Writer) int {
 	}
 	for _, manifest := range manifests {
 		fmt.Fprintf(stdout, "%s\t%s\t%s\n", manifest.ID, manifest.Status, manifest.RawDemand)
+		for _, summary := range loadSpecLaneSummaries(manifest.ID) {
+			fmt.Fprintf(stdout, "lane/%s\tlatest_success=%s\tblocked=%s\tauto_resume=%t\trecommendation=%s\n", summary.SpecID, summary.LatestSuccessfulStage, summary.BlockingStage, summary.AutomaticResumeSafe, summary.ResumeRecommendation)
+		}
 	}
 	return 0
 }
@@ -295,6 +315,70 @@ func updateRunStatus(args []string, status domain.RunStatus, stdout io.Writer, s
 	return 0
 }
 
+func runResume(args []string, stdout io.Writer, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "resume requires run id")
+		return 2
+	}
+	store := state.JSONStore{RootDir: "."}
+	manifest, err := loadRunManifest(args[0], store)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	spec, err := loadResumableSpecForRun(args[0])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	adapter, err := selectAgentAdapter(manifest.Adapter, "", manifest.ID, 30*time.Minute)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	dispatcher, ok := adapter.(ports.CommandDispatcher)
+	if !ok {
+		fmt.Fprintf(stderr, "adapter %q does not support workflow command resume\n", manifest.Adapter)
+		return 2
+	}
+	worktree := specWorktreeForRun(args[0], spec.ID)
+	runner := flow.Runner{
+		Agent:            adapter,
+		Dispatcher:       dispatcher,
+		ArtifactRoot:     ".",
+		RunID:            manifest.ID,
+		Verifier:         verify.Checker{RootDir: "."},
+		CommitLocalSteps: specWorktreeHasGit(worktree.WorktreePath),
+		AutoApproveGates: true,
+	}
+	decision, _, err := orchestration.ResumeSpecKitLane(context.Background(), ".", manifest.ID, spec, worktree, runner)
+	sqlStore, openErr := state.OpenSQLiteStore(filepath.Join(".dft", "state.db"))
+	if openErr != nil {
+		fmt.Fprintln(stderr, openErr)
+		return 2
+	}
+	defer sqlStore.Close()
+	if err != nil {
+		manifest.Status = domain.RunFailed
+		if stateErr := saveRunState(store, sqlStore, manifest); stateErr != nil {
+			fmt.Fprintf(stderr, "record failure state: %v\n", stateErr)
+		}
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	manifest.Status = domain.RunSucceeded
+	if err := saveRunState(store, sqlStore, manifest); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if decision.Completed {
+		fmt.Fprintf(stdout, "%s\t%s\t%s\tcomplete\n", manifest.ID, manifest.Status, spec.ID)
+		return 0
+	}
+	fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", manifest.ID, manifest.Status, spec.ID, decision.Stage)
+	return 0
+}
+
 func saveRunState(jsonStore state.JSONStore, sqlStore *state.SQLiteStore, manifest domain.RunManifest) error {
 	if err := jsonStore.Save(manifest); err != nil {
 		return err
@@ -321,6 +405,104 @@ func loadRunManifest(id string, jsonStore state.JSONStore) (domain.RunManifest, 
 		return sqlStore.Load(id)
 	}
 	return jsonStore.Load(id)
+}
+
+func loadSingleSpecForRun(runID string) (domain.SpecRef, error) {
+	wbs, err := loadWBSForRun(runID)
+	if err != nil {
+		return domain.SpecRef{}, err
+	}
+	if len(wbs.Specs) != 1 {
+		return domain.SpecRef{}, fmt.Errorf("resume currently supports exactly one spec, found %d", len(wbs.Specs))
+	}
+	return wbs.Specs[0], nil
+}
+
+func loadResumableSpecForRun(runID string) (domain.SpecRef, error) {
+	wbs, err := loadWBSForRun(runID)
+	if err != nil {
+		return domain.SpecRef{}, err
+	}
+	if len(wbs.Specs) == 1 {
+		return wbs.Specs[0], nil
+	}
+	specsByID := make(map[string]domain.SpecRef, len(wbs.Specs))
+	for _, spec := range wbs.Specs {
+		specsByID[spec.ID] = spec
+	}
+	summaries := loadSpecLaneSummaries(runID)
+	var candidate *domain.SpecRef
+	for _, summary := range summaries {
+		spec, ok := specsByID[summary.SpecID]
+		if !ok {
+			continue
+		}
+		if summary.BlockingStage == "" && summary.ResumeRecommendation == "" && summary.LatestSuccessfulStage == orchestration.SpecKitStageMergeback {
+			continue
+		}
+		if candidate != nil && candidate.ID != spec.ID {
+			return domain.SpecRef{}, fmt.Errorf("resume found multiple active specs in run %s", runID)
+		}
+		copy := spec
+		candidate = &copy
+	}
+	if candidate == nil {
+		return domain.SpecRef{}, fmt.Errorf("resume could not identify an active spec in run %s", runID)
+	}
+	return *candidate, nil
+}
+
+func loadWBSForRun(runID string) (domain.WBS, error) {
+	content, err := os.ReadFile(filepath.Join(".dft", "runs", runID, "design", "wbs.json"))
+	if err != nil {
+		return domain.WBS{}, fmt.Errorf("read run WBS: %w", err)
+	}
+	var wbs domain.WBS
+	if err := json.Unmarshal(content, &wbs); err != nil {
+		return domain.WBS{}, fmt.Errorf("parse run WBS: %w", err)
+	}
+	return wbs, nil
+}
+
+func specWorktreeForRun(runID string, specID string) orchestration.SpecWorktree {
+	return orchestration.SpecWorktree{
+		RunID:           runID,
+		SpecID:          specID,
+		Branch:          "spec/" + runID + "/" + specID,
+		IncrementBranch: "increment/" + runID,
+		WorktreePath:    filepath.Join(".dft", "worktrees", runID, specID),
+		SpecKitEnv: map[string]string{
+			"GIT_BRANCH_NAME": orchestration.SpecKitFeatureBranchName(specID),
+		},
+	}
+}
+
+func specWorktreeHasGit(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(path, ".git"))
+	return err == nil
+}
+
+func loadSpecLaneSummaries(runID string) []orchestration.SpecKitLaneSummary {
+	wbs, err := loadWBSForRun(runID)
+	if err != nil {
+		return nil
+	}
+	summaries := make([]orchestration.SpecKitLaneSummary, 0, len(wbs.Specs))
+	for _, spec := range wbs.Specs {
+		worktree := specWorktreeForRun(runID, spec.ID)
+		summary, err := orchestration.SummarizeSpecKitLane(".", runID, spec, worktree)
+		if err != nil {
+			continue
+		}
+		if summary.SpecID == "" {
+			continue
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries
 }
 
 func walkRunArtifacts(runDir string, stdout io.Writer, stderr io.Writer) int {
@@ -367,10 +549,16 @@ func printDurableRunDetails(runID string, stdout io.Writer, stderr io.Writer) in
 	for _, entry := range entries {
 		fmt.Fprintf(stdout, "inbox/%s\t%s\t%s\n", entry.ID, entry.Status, entry.Message)
 	}
+	for _, summary := range loadSpecLaneSummaries(runID) {
+		fmt.Fprintf(stdout, "lane/%s\tlatest_success=%s\tblocked=%s\tauto_resume=%t\trecommendation=%s\n", summary.SpecID, summary.LatestSuccessfulStage, summary.BlockingStage, summary.AutomaticResumeSafe, summary.ResumeRecommendation)
+		if len(summary.LatestFindingsSummary) > 0 {
+			fmt.Fprintf(stdout, "lane/%s/findings\t%v\n", summary.SpecID, summary.LatestFindingsSummary)
+		}
+	}
 	return 0
 }
 
-func runDogfoodLoop(ctx context.Context, demandPackage domain.DemandPackage, adapter ports.AgentAdapter, dryRun bool, holdIncrement bool, evalRetries int) error {
+func runFullProcessLoop(ctx context.Context, demandPackage domain.DemandPackage, adapter ports.AgentAdapter, dryRun bool, holdIncrement bool, evalRetries int) error {
 	gitPort := ports.GitPort(gitadapter.Adapter{RepoDir: "."})
 	if dryRun {
 		gitPort = dryRunGit{defaultBranch: "main"}
@@ -387,8 +575,12 @@ func runDogfoodLoop(ctx context.Context, demandPackage domain.DemandPackage, ada
 		HoldIncrement:    holdIncrement,
 		MaxEvalRetries:   evalRetries,
 	}).Execute(ctx, demandPackage); err != nil {
-		return fmt.Errorf("execute dogfood macro loop: %w", err)
+		return fmt.Errorf("execute macro loop: %w", err)
 	}
+	return nil
+}
+
+func runDogfoodFeedbackLoop(ctx context.Context, demandPackage domain.DemandPackage, adapter ports.AgentAdapter, dryRun bool) error {
 	runner := flow.Runner{Agent: adapter, ArtifactRoot: ".", RunID: demandPackage.ID, CommitLocalSteps: !dryRun}
 	if _, err := runner.Execute(ctx, flow.Definition{Steps: []flow.Step{{
 		ID:        "dogfood-intake",

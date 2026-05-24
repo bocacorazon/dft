@@ -1,0 +1,207 @@
+{
+  "main": {
+    "id": "881221375e127864",
+    "type": "split",
+    "children": [
+      {
+        "id": "7c98011e27918af7",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "16fc18bd39b05481",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "docs/000-foundation/speckit-flow-enhancements.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "speckit-flow-enhancements"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "2c0896f5ea13356a",
+    "type": "split",
+    "children": [
+      {
+        "id": "7bcbfba975f6a4ef",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "db810acf15587b1f",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "4c35f1bc2dadb649",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "9a17edc24af753d6",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "a6441c2d6f2c2721",
+    "type": "split",
+    "children": [
+      {
+        "id": "900b7d3db08b87c4",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "50dfc52038d42214",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "docs/000-foundation/speckit-flow-enhancements.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for speckit-flow-enhancements"
+            }
+          },
+          {
+            "id": "cdb126973ea938fa",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "docs/000-foundation/speckit-flow-enhancements.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from speckit-flow-enhancements"
+            }
+          },
+          {
+            "id": "f78a07abef99c770",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "739cb5c04a831e60",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "0a1f74e24f610485",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "docs/000-foundation/speckit-flow-enhancements.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of speckit-flow-enhancements"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "16fc18bd39b05481",
+  "lastOpenFiles": [
+    "scripts/real-e2e.sh",
+    "scripts",
+    "internal/eval/manifest_test.go",
+    "internal/eval/manifest.go",
+    "internal/eval/orchestrator_test.go",
+    "internal/eval/orchestrator.go",
+    "internal/eval/surface_author_test.go",
+    "internal/eval/surface_author.go",
+    "internal/eval/legacy_test.go",
+    "internal/eval/legacy.go",
+    "internal/eval/author_test.go",
+    "docs/000-foundation/eval-framework-design.md",
+    "docs/000-foundation/implementation-plan.md",
+    "docs/000-foundation/orchestrator-dsl.md",
+    "docs/000-foundation/overview.md",
+    "docs/research/bdd-feature.md",
+    "docs/research/verification.md",
+    "docs/000-foundation/speckit-flow-enhancements.md"
+  ]
+}

@@ -32,6 +32,17 @@ func TestCheckerEvaluatesFileAndGrepChecks(t *testing.T) {
 	}
 }
 
+func TestCheckerEvaluatesStringEquals(t *testing.T) {
+	checker := Checker{RootDir: t.TempDir()}
+	result := checker.Run(context.Background(), []domain.Check{
+		{ID: "equal", Kind: domain.CheckStringEquals, Args: []string{"true", "true"}},
+	})
+
+	if result.Status != domain.VerdictPass {
+		t.Fatalf("status = %q, want pass; findings=%#v", result.Status, result.Findings)
+	}
+}
+
 func TestCheckerReportsFailureFindings(t *testing.T) {
 	checker := Checker{RootDir: t.TempDir()}
 	result := checker.Run(context.Background(), []domain.Check{
@@ -94,6 +105,29 @@ func TestCheckerEvaluatesCountMatchesAtLeastAndOS(t *testing.T) {
 	}
 }
 
+func TestCheckerEvaluatesChecksumDifferenceAndExactCount(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "actual.md"), []byte("# Real output\n"), 0o644); err != nil {
+		t.Fatalf("write actual fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "template.md"), []byte("# Template\n"), 0o644); err != nil {
+		t.Fatalf("write template fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tasks.md"), []byte("- [X] Done\n- [x] Done\n"), 0o644); err != nil {
+		t.Fatalf("write tasks fixture: %v", err)
+	}
+
+	checker := Checker{RootDir: root}
+	result := checker.Run(context.Background(), []domain.Check{
+		{ID: "checksum", Kind: domain.CheckFileChecksumDiffers, Args: []string{"actual.md", "template.md"}},
+		{ID: "unchecked", Kind: domain.CheckCountMatchesEquals, Args: []string{"tasks.md", "[ ]", "0"}},
+	})
+
+	if result.Status != domain.VerdictPass {
+		t.Fatalf("status = %q, want pass; findings=%#v", result.Status, result.Findings)
+	}
+}
+
 func TestCheckerReportsCountMatchesAtLeastFailure(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "log.txt"), []byte("pass\n"), 0o644); err != nil {
@@ -110,6 +144,48 @@ func TestCheckerReportsCountMatchesAtLeastFailure(t *testing.T) {
 	}
 	if got := result.Findings[0].CheckID; got != "count" {
 		t.Fatalf("finding check id = %q, want count", got)
+	}
+}
+
+func TestCheckerDetectsUnmergedFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git merge fixture is POSIX-specific")
+	}
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "dft@example.test")
+	runGit(t, root, "config", "user.name", "dft")
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatalf("write base file: %v", err)
+	}
+	runGit(t, root, "add", "notes.txt")
+	runGit(t, root, "commit", "-m", "base")
+	runGit(t, root, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("feature\n"), 0o644); err != nil {
+		t.Fatalf("write feature file: %v", err)
+	}
+	runGit(t, root, "commit", "-am", "feature change")
+	runGit(t, root, "checkout", "master")
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("main\n"), 0o644); err != nil {
+		t.Fatalf("write main file: %v", err)
+	}
+	runGit(t, root, "commit", "-am", "main change")
+
+	command := exec.Command("git", "merge", "feature")
+	command.Dir = root
+	if output, err := command.CombinedOutput(); err == nil {
+		t.Fatalf("git merge succeeded unexpectedly:\n%s", output)
+	}
+
+	result := (Checker{RootDir: root}).Run(context.Background(), []domain.Check{
+		{ID: "merge-clean", Kind: domain.CheckGitNoUnmergedFiles},
+	})
+
+	if result.Status != domain.VerdictFail {
+		t.Fatalf("status = %q, want fail", result.Status)
+	}
+	if got := result.Findings[0].CheckID; got != "merge-clean" {
+		t.Fatalf("finding check id = %q, want merge-clean", got)
 	}
 }
 

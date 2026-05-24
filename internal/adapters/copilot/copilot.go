@@ -23,6 +23,79 @@ type Adapter struct {
 	Env           []string
 }
 
+// DispatchCommand invokes a named workflow command through Copilot agent mode.
+func (a Adapter) DispatchCommand(ctx context.Context, request ports.CommandRequest) (ports.CommandResponse, error) {
+	binary := a.Binary
+	if binary == "" {
+		binary = "copilot"
+	}
+	if request.Command == "" {
+		return ports.CommandResponse{}, fmt.Errorf("command name is required")
+	}
+	if a.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, a.Timeout)
+		defer cancel()
+	}
+	baseDir := a.Cwd
+	if baseDir == "" {
+		baseDir = "."
+	}
+	cmdDir := baseDir
+	if request.Cwd != "" {
+		if filepath.IsAbs(request.Cwd) {
+			cmdDir = request.Cwd
+		} else {
+			cmdDir = filepath.Join(baseDir, request.Cwd)
+		}
+	}
+	absCmdDir, err := filepath.Abs(cmdDir)
+	if err != nil {
+		return ports.CommandResponse{}, fmt.Errorf("resolve copilot cwd: %w", err)
+	}
+	stem := request.Command
+	if strings.HasPrefix(stem, "speckit.") {
+		stem = strings.TrimPrefix(stem, "speckit.")
+	}
+	agentName := "speckit." + stem
+	args := []string{
+		"-p", request.Input,
+		"--agent", agentName,
+		"--no-ask-user",
+	}
+	if request.AllowTools {
+		args = append(args, "--yolo")
+	}
+	if request.Model != "" {
+		args = append(args, "--model", request.Model)
+	}
+	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.Dir = absCmdDir
+	cmd.Env = append(os.Environ(), a.Env...)
+	for key, value := range request.Env {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = strings.TrimSpace(stdout.String())
+		}
+		if detail == "" {
+			detail = err.Error()
+		}
+		return ports.CommandResponse{}, fmt.Errorf("copilot command %q failed: %w: %s", request.Command, err, detail)
+	}
+	return ports.CommandResponse{
+		Stdout:   stdout.String(),
+		Stderr:   stderr.String(),
+		ExitCode: 0,
+	}, nil
+}
+
 // Invoke runs the configured Copilot binary with explicit argv and captures output.
 func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.AgentResponse, error) {
 	binary := a.Binary

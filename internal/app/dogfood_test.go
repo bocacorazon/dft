@@ -9,6 +9,50 @@ import (
 	"testing"
 )
 
+func TestRunSubmitFullStubCreatesFullProcessWithoutDogfoodArtifacts(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	t.Setenv("DFT_RUN_ID", "full-run")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"submit", "--adapter", "stub", "--dry-run", "--full", "Improve dft status output"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("Run returned exit code %d, want 0\nstderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "full process complete") {
+		t.Fatalf("stdout = %q, want full process completion", stdout.String())
+	}
+
+	runDir := filepath.Join(root, ".dft", "runs", "full-run")
+	for _, relative := range []string{
+		"intent/demand-package.json",
+		"design/wbs.json",
+		"design/lane-assignments.json",
+		"design/eval-surfaces.json",
+		"eval/eval-ready.json",
+		"eval/eval-plan.json",
+		"eval/evaluation.json",
+		"macro-result.json",
+		"review/final-review.json",
+	} {
+		path := filepath.Join(runDir, relative)
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected artifact %s: %v", relative, err)
+		}
+	}
+	for _, relative := range []string{
+		"steps/dogfood-intake/parsed.json",
+		"dogfood-feedback-evaluation.json",
+		"next-demand-package.json",
+	} {
+		if _, err := os.Stat(filepath.Join(runDir, relative)); !os.IsNotExist(err) {
+			t.Fatalf("dogfood-only artifact %s exists after --full: %v", relative, err)
+		}
+	}
+}
+
 func TestRunSubmitDogfoodStubCreatesFullFeedbackLoopArtifacts(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
@@ -30,9 +74,11 @@ func TestRunSubmitDogfoodStubCreatesFullFeedbackLoopArtifacts(t *testing.T) {
 		"intent/demand-package.json",
 		"design/wbs.json",
 		"design/lane-assignments.json",
+		"design/eval-surfaces.json",
 		"steps/dogfood-intake/parsed.json",
-		"eval-plan.json",
-		"evaluation.json",
+		"eval/eval-ready.json",
+		"eval/eval-plan.json",
+		"eval/evaluation.json",
 		"dogfood-feedback-evaluation.json",
 		"macro-result.json",
 		"review/final-review.json",
