@@ -189,6 +189,11 @@ func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 	if fullProcess || dogfood {
+		fmt.Fprintln(stderr, "warning: --full/--dogfood is deprecated. Use the phase commands instead:")
+		fmt.Fprintln(stderr, "  dft intent   → refine demand with Hermes agents")
+		fmt.Fprintln(stderr, "  dft solution → design test plan, WBS, and lanes")
+		fmt.Fprintln(stderr, "  dft build    → dispatch specs to executors")
+		fmt.Fprintln(stderr, "  dft evaluate → run BDD evaluation")
 		if err := runFullProcessLoop(context.Background(), demandPackage, adapter, dryRun, holdIncrement, evalRetries); err != nil {
 			manifest.Status = domain.RunFailed
 			if stateErr := recordFailedRun(store, sqlStore, jobID, manifest); stateErr != nil {

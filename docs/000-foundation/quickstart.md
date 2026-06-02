@@ -2,6 +2,8 @@
 
 Use `dft init` once in a target repository to provision `.dft/` assets, Copilot agent files, context files, lane/flow scaffolding, and the sqlite-backed run store.
 
+For the longer operator guide, see [user-manual.md](user-manual.md).
+
 ```sh
 dft init
 DFT_RUN_ID=my-increment dft submit --adapter stub --dry-run --dogfood "Describe the demand package"

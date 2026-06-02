@@ -25,3 +25,6 @@ Thumbs.db
 # - .dft/context/
 # - .dft/templates/
 # - .dft/schemas/
+
+
+.obsidian/
