@@ -51,8 +51,8 @@ func TestStatusInspectCancelAndResumeCommands(t *testing.T) {
 	if got := stdout.String(); !strings.Contains(got, "evaluation.json") || !strings.Contains(got, "next-demand-package.json") {
 		t.Fatalf("inspect output = %q, want artifacts", got)
 	}
-	if got := stdout.String(); !strings.Contains(got, "lane/001-track-dogfood-runs") {
-		t.Fatalf("inspect output = %q, want lane detail", got)
+	if got := stdout.String(); !strings.Contains(got, "run: state-run") {
+		t.Fatalf("inspect output = %q, want run id header", got)
 	}
 
 	stdout.Reset()

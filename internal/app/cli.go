@@ -59,13 +59,17 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runSubmit(args[1:], stdout, stderr)
 	}
 	if command == "status" {
-		return runStatus(stdout, stderr)
+		return showStatusV2(stdout, stderr)
 	}
 	if command == "inspect" {
-		return runInspect(args[1:], stdout, stderr)
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "inspect requires a run id")
+			return 2
+		}
+		return printInspectV2(args[1], stdout, stderr)
 	}
 	if command == "cancel" {
-		return updateRunStatus(args[1:], domain.RunCancelled, stdout, stderr)
+		return updateRunStatusV2(args[1:], domain.RunCancelled, stdout, stderr)
 	}
 	if command == "resume" {
 		return runResume(args[1:], stdout, stderr)
