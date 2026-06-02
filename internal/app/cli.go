@@ -30,6 +30,7 @@ Usage:
 
 Commands:
   build     Execute orchestration phase: dispatch specs per lane assignments
+  evaluate  Execute evaluation phase: readiness → BDD eval → verdict
   submit    Start an increment from a demand package request
   status    Show current or historical run status
   inspect   Inspect run artifacts and step output
@@ -50,6 +51,9 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 	command := strings.TrimSpace(args[0])
 	if command == "build" {
 		return runBuild(args[1:], stdout, stderr)
+	}
+	if command == "evaluate" {
+		return runEvaluate(args[1:], stdout, stderr)
 	}
 	if command == "submit" {
 		return runSubmit(args[1:], stdout, stderr)
