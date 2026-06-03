@@ -1,155 +1,358 @@
 # dft User Manual
 
-`dft` is a headless workflow engine for spec-driven software production. You run
-it inside a Git repository to provision managed assets, submit a demand, and
-inspect the resulting artifacts, review output, and merge state.
+`dft` is a headless workflow engine for spec-driven software production. It
+splits work into four contract-driven phases — Intent, Solution, Build, and
+Evaluate — each with specialized agents and deterministic tooling. You drive
+it from inside Hermes (the coding agent) or via the CLI.
+
+## The four phases
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ PHASE 1: INTENT     (Hermes agents)                      │
+│ Raw demand → DemandPackage.json                          │
+│ Agents: ambiguity-scanner → demand-refiner → ac-verifier │
+├──────────────────────────────────────────────────────────┤
+│ PHASE 2: SOLUTION   (Hermes agents)                      │
+│ DemandPackage → SolutionDesign.json                      │
+│ Agents: test-planner → wbs-author → surface-contract     │
+│         → lane-assignment                                │
+├──────────────────────────────────────────────────────────┤
+│ PHASE 3: BUILD       (dft build CLI)                     │
+│ SolutionDesign → Dispatched specs → Code on increment    │
+│ Executors: speckit, direct, stub                         │
+├──────────────────────────────────────────────────────────┤
+│ PHASE 4: EVALUATE    (dft evaluate CLI)                  │
+│ Code + TestPlan + Eval surfaces → Verdict                │
+│ Engine: readiness → BDD eval → verdict                   │
+└──────────────────────────────────────────────────────────┘
+```
+
+Each phase consumes a well-defined JSON contract from the previous phase and
+produces a contract for the next. A coding agent (Hermes) can drive them
+end-to-end, or you can trigger each phase individually.
 
 ## What dft manages
 
 | Term | Meaning |
 | --- | --- |
 | Run | One execution attempt, identified by a run ID. |
-| Demand package | The normalized JSON version of the user's request. |
+| Demand package | The normalized JSON version of the user's request (`demand-package.json`). |
+| Solution design | The test plan, WBS, lane assignments, and eval surfaces (`solution-design.json`). |
+| Spec | One independently executable unit of work from the WBS. |
+| Lane | The execution strategy assigned to a spec (`speckit`, `direct`, `stub`). |
 | Increment branch | The integration branch for one run, named `increment/<run-id>`. |
-| Spec branch/worktree | The per-spec isolated workspace under `.dft/worktrees/<run-id>/<spec-id>`. |
 | Run artifacts | Durable outputs under `.dft/runs/<run-id>/`. |
 
 ## Prerequisites
 
 - A Git repository with an initial commit and a known default branch.
 - Go if you are building `dft` from source.
-- For real agent-backed runs: GitHub Copilot CLI available as `copilot` (or
-  passed with `--copilot-binary`).
-- For GitHub-backed end-to-end runs: `gh` authenticated and available on `PATH`.
-- For smoke tests: no agent account is required; use `--adapter stub`.
+- Hermes (the coding agent) for phases 1-2. For CLI-only workflows, you can
+  author the contract JSON files manually.
+- For real agent-backed build runs: GitHub Copilot CLI available as `copilot`
+  (or passed with `--copilot-binary`).
+- For smoke tests: no agent account is required; use the `stub` executor.
 
-## Overall developer workflow
+## Quickstart (Hermes-driven)
 
-1. Build the CLI.
+This is the primary workflow. Do everything from inside Hermes without
+leaving the conversation.
 
-   ```sh
-   go build -o bin/dft ./cmd/dft
-   ```
+### 1. Build the CLI
 
-2. Provision dft into the target repository once.
+```sh
+go build -o bin/dft ./cmd/dft
+```
 
-   ```sh
-   ./bin/dft init
-   git add .
-   git commit -m "provision dft assets"
-   ```
+### 2. Provision dft into the repository once
 
-3. Refresh managed assets when the toolkit changes.
+```sh
+./bin/dft init
+git add .
+git commit -m "provision dft assets"
+```
 
-   ```sh
-   ./bin/dft sync --force
-   ```
+### 3. Design your feature (Intent phase)
 
-4. Start with a dry-run smoke test. This writes run artifacts but skips local
-   git mutations and engine-owned commits.
+In Hermes:
 
-   ```sh
-   DFT_RUN_ID=smoke-run ./bin/dft submit --adapter stub --dry-run --full \
-     "Build a small CLI that prints its version"
-   ```
+```
+> Help me design a REST API for managing bookmarks. Should support CRUD,
+  tagging, and search. Keep it simple — single user, no auth for MVP.
+```
 
-5. When the smoke path looks good, run the real flow with Copilot.
+Hermes loads the intent agents:
+- **ambiguity-scanner** finds unclear terms: *"fast", "tagging model", "search scope"*
+- You clarify in conversation
+- **demand-refiner** produces a refined demand with acceptance criteria
+- **ac-verifier** checks coverage: *"7/7 requirements covered. Verified."*
+- You say **"Save the demand package"** → `demand-package.json` written
 
-   ```sh
-   DFT_RUN_ID=feature-001 ./bin/dft submit --adapter copilot \
-     --copilot-binary copilot --full --agent-timeout 45m --eval-retries 1 \
-     --hold-increment \
-     "Build a minimal Go CLI named democtl with --version"
-   ```
+### 4. Design the solution (Solution phase)
 
-6. Monitor and inspect the run.
+In Hermes:
 
-   ```sh
-   ./bin/dft status
-   ./bin/dft inspect feature-001
-   ```
+```
+> Now design the solution
+```
 
-7. If a run was interrupted, resume it from the next incomplete stage.
+Hermes loads the solution agents:
+- **test-planner** → 12 Gherkin scenarios covering all ACs
+- **wbs-author** → 4 specs (bookmark CRUD, tagging, search, CLI surface)
+- **surface-contract-author** → 2 eval surfaces (HTTP API, CLI)
+- **lane-assignment** → 3 speckit lanes, 1 direct lane
+- You say **"Save it"** → `solution-design.json` written
 
-   ```sh
-   ./bin/dft resume feature-001
-   ```
+### 5. Build it
 
-8. If you need to stop tracking a run, mark it cancelled and keep the artifacts.
+In Hermes:
 
-   ```sh
-   ./bin/dft cancel feature-001
-   ```
+```
+> Build it
+```
 
-## What a full run does
+Hermes runs `dft build <run-id>`. The dispatcher reads the solution design,
+creates the increment branch, and executes each spec via its assigned lane:
 
-When you use `dft submit --full`, dft drives a full increment:
+```
+spec/bookmark-crud     → speckit  → specify → plan → tasks → implement → review → mergeback
+spec/tagging           → speckit  → (same pipeline)
+spec/search            → speckit  → (same pipeline)
+spec/cli-surface       → direct   → single implement pass
+```
 
-1. Intake turns raw demand into `intent/demand-package.json`.
-2. dft creates an increment branch from the repository default branch.
-3. Design authoring produces the WBS, lane assignments, and eval surfaces.
-4. For each spec, dft runs the Speckit lane: `specify`, `plan`, `tasks`,
-   `analyze`, `implement`, review, and mergeback.
-5. Evaluation authors an eval plan and executes deterministic checks.
-6. Final review runs against the increment diff.
-7. The increment merges back to the default branch unless
-   `--hold-increment`/`--no-merge` is set.
+```
+4/4 specs complete
+```
 
-`--dogfood` is a superset of `--full`: it runs the full process and also writes
-feedback artifacts such as `next-demand-package.json` for the next increment.
+### 6. Evaluate it
 
-## CLI usage
+In Hermes:
 
-`dft`, `dft help`, and `dft --help` all print the top-level command list.
-Subcommands do not implement their own `--help` handling, so use the table
-below as the reference for current usage instead of commands like
-`dft submit --help`.
+```
+> Evaluate it
+```
+
+Hermes runs `dft evaluate <run-id>`. The eval engine:
+1. Binds eval surfaces to delivered artifacts
+2. Runs readiness probes
+3. Authors a BDD eval plan (source-blind)
+4. Executes scenarios against the increment
+5. Reports verdict and coverage
+
+```
+verdict=pass coverage=12/12
+```
+
+### 7. Monitor progress
+
+```
+> dft status
+```
+
+Shows phase progress for all runs:
+```
+run-20260601-195500  intent=complete  solution=complete  build=4/4  eval=complete
+run-20260601-120000  intent=complete  solution=incomplete  build=-  eval=-
+```
+
+```
+> dft inspect run-20260601-195500
+```
+
+Shows full phase details, contract artifacts, per-spec status, and eval verdict.
+
+---
+
+## CLI reference
+
+The dft CLI is the engine that Hermes calls under the hood. You can also use
+it directly for scripting or when not using Hermes.
+
+### Commands
 
 | Command | Usage | What it does |
 | --- | --- | --- |
 | `help` | `dft help` | Prints the top-level help text. |
-| `init` | `dft init [--force]` | Provisions managed `.dft/`, `.github/agents/`, `.specify/`, and related assets in the current repository. |
+| `init` | `dft init [--force]` | Provisions managed `.dft/`, `.github/agents/`, `.specify/`, and related assets. |
 | `sync` | `dft sync [--force]` | Refreshes managed assets using the provisioning manifest. |
-| `submit` | `dft submit [flags] <demand text>` | Creates a run. With `--full` or `--dogfood`, it executes the macro workflow. |
-| `status` | `dft status` | Lists known runs and, when available, lane summaries for each spec. |
-| `inspect` | `dft inspect <run-id>` | Prints files under `.dft/runs/<run-id>/`, then durable step, inbox, and lane status. |
-| `cancel` | `dft cancel <run-id>` | Updates the stored run status to `cancelled`. Artifacts stay on disk. |
-| `resume` | `dft resume <run-id>` | Reconstructs the active spec from artifacts and resumes from the next resumable stage. |
+| `build` | `dft build <run-id> [--spec <id>] [--resume] [--adapter stub\|copilot] [--agent-timeout 30m]` | Dispatches specs from `solution-design.json` to executors. |
+| `build status` | `dft build status <run-id>` | Shows per-spec execution status. |
+| `evaluate` | `dft evaluate <run-id>` | Runs readiness → BDD eval → verdict from contracts. |
+| `evaluate inspect` | `dft evaluate inspect <run-id>` | Shows the last evaluation result. |
+| `status` | `dft status` | Lists all runs with phase progress (intent, solution, build, eval). |
+| `inspect` | `dft inspect <run-id>` | Full run inspection: artifacts, contracts, per-spec status, eval results. |
+| `cancel` | `dft cancel <run-id>` | Marks a run cancelled. Artifacts stay on disk. |
+| `resume` | `dft resume <run-id>` | Resumes a build from the last incomplete spec. |
+| `submit` | `dft submit [flags] <demand>` | **Deprecated.** Creates a run from raw demand. The `--full`/`--dogfood` flags still work but print a deprecation notice. Use the phase commands instead. |
 
-### `submit` flags
+### `build` flags
 
 | Flag | Meaning |
 | --- | --- |
-| `--adapter stub\|copilot` | Selects the agent adapter. The default is `stub`. |
-| `--copilot-binary <path>` | Overrides the Copilot executable used by the `copilot` adapter. |
-| `--dry-run` | Writes artifacts but skips local git mutations and engine-owned commits. |
-| `--full` / `--execute` | Runs the full macro process instead of intake only. |
-| `--dogfood` | Runs the full process plus the dogfood feedback loop. |
-| `--hold-increment` / `--no-merge` | Keeps the increment branch instead of merging it back to the default branch. |
-| `--eval-retries <n>` | Sets the maximum eval remediation retries. |
-| `--agent-timeout <duration>` | Sets the per-agent timeout, for example `30m` or `45m`. |
-| `DFT_RUN_ID` | Environment variable for a stable run ID; otherwise dft generates `run-YYYYMMDD-HHMMSS`. |
+| `--adapter stub\|copilot` | Selects the agent adapter. Default is `stub` (smoke tests). Use `copilot` for real agent-backed runs. |
+| `--copilot-binary <path>` | Overrides the Copilot executable. |
+| `--agent-timeout <duration>` | Per-agent timeout, e.g. `30m` or `45m`. |
+| `--spec <id>` | Execute only a single spec (skips others). |
+| `--resume` | Resume from the last incomplete spec in a prior run. |
+
+---
+
+## CLI-driven workflow (without Hermes)
+
+If you prefer to work without Hermes, you can author the contract JSON files
+directly and use the CLI for phases 3-4.
+
+### 1. Create the demand package
+
+Write `.dft/runs/<run-id>/intent/demand-package.json`:
+
+```json
+{
+  "id": "feature-001",
+  "title": "Bookmark REST API",
+  "raw_demand": "Build a REST API for managing bookmarks with CRUD, tagging, and search",
+  "refined_demand": "Build a REST API...",
+  "acceptance_criteria": [
+    {"id": "AC-001", "description": "POST /bookmarks creates a bookmark and returns 201"},
+    {"id": "AC-002", "description": "GET /bookmarks returns all bookmarks as JSON array"}
+  ],
+  "assumptions": ["Single-user deployment", "SQLite backend"],
+  "non_goals": ["Authentication", "Sharing", "Import/export"],
+  "verified_complete": true,
+  "created_at": "2026-06-01T19:55:00Z"
+}
+```
+
+### 2. Create the solution design
+
+Write `.dft/runs/<run-id>/design/solution-design.json`:
+
+```json
+{
+  "demand_package_id": "feature-001",
+  "test_plan": {
+    "demand_package_id": "feature-001",
+    "scenarios": [
+      {
+        "id": "SC-001", "name": "Create bookmark",
+        "requirement_ids": ["AC-001"],
+        "given": ["the API is running"],
+        "when": ["POST /bookmarks with valid JSON body"],
+        "then": ["status is 201", "response contains id field"]
+      }
+    ]
+  },
+  "wbs": {
+    "demand_package_id": "feature-001",
+    "specs": [
+      {"id": "spec-crud", "description": "CRUD endpoints", "acceptance_criteria": ["AC-001", "AC-002"]},
+      {"id": "spec-search", "description": "Search endpoint", "acceptance_criteria": ["AC-003"]}
+    ]
+  },
+  "lane_assignments": [
+    {"spec_id": "spec-crud", "lane": "speckit", "rationale": "Multi-file feature"},
+    {"spec_id": "spec-search", "lane": "speckit", "rationale": "Multi-file feature"}
+  ],
+  "eval_surface_contract": {
+    "demand_package_id": "feature-001",
+    "surfaces": [
+      {"id": "http-api", "kind": "http_api", "artifact_ref": "http://localhost:8080", "adapter_family": "http", "environment_class": "ephemeral"}
+    ]
+  }
+}
+```
+
+### 3. Build and evaluate
+
+```sh
+./bin/dft build feature-001 --adapter copilot --copilot-binary copilot
+./bin/dft evaluate feature-001
+```
+
+---
 
 ## Reading command output
 
-- `status` prints one line per run as `run-id<TAB>status<TAB>raw-demand`, then
-  optional `lane/<spec-id>` lines with the latest successful stage, blocking
-  stage, and resume recommendation.
-- `inspect` first prints artifact-relative paths under `.dft/runs/<run-id>/`,
-  then durable lines such as `state/steps/...`, `inbox/...`, and
-  `lane/<spec-id>`.
+### `dft status`
+
+```
+run-20260601-195500  intent=complete  solution=complete  build=4/4  eval=complete
+ spec/001-bookmark-crud  speckit  completed
+ spec/002-tagging        speckit  completed
+ spec/003-search         speckit  completed
+ spec/004-cli-surface    direct   completed
+run-20260601-120000  intent=complete  solution=incomplete  build=-  eval=-
+```
+
+Phase progress columns: `-` (not started), `incomplete` (prior phase done but this one missing), `N/M` (build progress with spec counts), `complete`.
+
+### `dft inspect <run-id>`
+
+First prints the artifact file tree under `.dft/runs/<run-id>/`, then:
+
+```
+run: run-20260601-195500
+  intent:    complete
+  solution:  complete
+  build:     4/4
+  evaluate:  complete
+
+--- Demand Package ---
+  title: Bookmark REST API
+  acs: 7
+  verified: true
+
+--- Solution Design ---
+  specs: 4
+  scenarios: 12
+  surfaces: 2
+  lane: spec-crud -> speckit (Multi-file feature)
+  lane: spec-search -> speckit (Multi-file feature)
+
+--- Build Results ---
+  spec-crud: completed (speckit)
+  spec-search: completed (speckit)
+
+--- Evaluation ---
+{"verdict":"pass","coverage":{"total":12,"covered":12},"findings":[]}
+```
+
+---
 
 ## Key files and directories
 
 | Path | Contents |
 | --- | --- |
-| `.dft/state.db` | Durable run, job, step, and inbox state. |
-| `.dft/runs/<run-id>/intent/` | Intake prompt, stdout capture, and `demand-package.json`. |
-| `.dft/runs/<run-id>/design/` | WBS, lane assignments, and eval surfaces. |
-| `.dft/runs/<run-id>/eval/` | Readiness, eval plan, evaluation result, and evidence. |
-| `.dft/runs/<run-id>/review/` | Final review output. |
-| `.dft/runs/<run-id>/transcripts/` | Copilot adapter transcripts: prompt, argv, stdout, stderr. |
+| `.dft/state.db` | Durable run state. |
+| `.dft/skills/` | Hermes agent skill documents for intent and solution phases. |
+| `.dft/runs/<run-id>/intent/demand-package.json` | Intent phase output — the verified demand package. |
+| `.dft/runs/<run-id>/design/solution-design.json` | Solution phase output — test plan, WBS, lanes, eval surfaces. |
+| `.dft/runs/<run-id>/design/wbs.json` | Work breakdown structure (individual artifact from wbs-author). |
+| `.dft/runs/<run-id>/design/test-plan.json` | Gherkin test scenarios (individual artifact from test-planner). |
+| `.dft/runs/<run-id>/design/lane-assignments.json` | Spec-to-lane mapping (individual artifact from lane-assignment). |
+| `.dft/runs/<run-id>/design/eval-surfaces.json` | Eval surface declarations. |
+| `.dft/runs/<run-id>/orchestration-result.json` | Build phase output — per-spec results and artifact manifest. |
+| `.dft/runs/<run-id>/eval/evaluation.json` | Evaluation phase output — verdict, coverage, findings, evidence. |
+| `.dft/runs/<run-id>/steps/` | Per-step transcripts, parsed output, stderr/stdout from agent runs. |
 | `.dft/worktrees/<run-id>/<spec-id>/` | Per-spec worktree and generated Spec Kit artifacts. |
+
+---
+
+## Executors (execution plans)
+
+Each spec in the WBS is assigned a lane that maps to an executor:
+
+| Lane | Executor | When to use |
+| --- | --- | --- |
+| `speckit` | Full specify → plan → tasks → analyze → implement → code-review → mergeback pipeline. | Multi-file features, complex logic, new modules. |
+| `direct` | Single-pass implementation without spec/plan overhead. | Config changes, single-file scripts, dependency updates. |
+| `stub` | No-op that returns "completed" immediately. | Pipeline smoke tests, dry runs. |
+
+New executors can be registered via the `ExecutorRegistry` in `internal/orchestration/v2/executor.go`.
+
+---
 
 ## Working on dft itself
 
@@ -158,6 +361,4 @@ development. Keep `go test ./...` green, use `go vet ./...` as the additional
 static check, and rebuild the CLI with `go build ./cmd/dft` before manual smoke
 or end-to-end runs.
 
-For a real GitHub/Copilot-backed operator check, use `scripts/real-e2e.sh`. It
-builds `dft`, provisions a test repository, runs `submit --adapter copilot
---full`, and validates the generated software and run artifacts.
+For a real GitHub/Copilot-backed operator check, use `scripts/real-e2e.sh`.
