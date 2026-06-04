@@ -29,9 +29,10 @@ Usage:
   dft <command> [arguments]
 
 Commands:
-  build     Execute orchestration phase: dispatch specs per lane assignments
-  evaluate  Execute evaluation phase: readiness → BDD eval → verdict
-  submit    Start an increment from a demand package request
+  build         Execute orchestration phase: dispatch specs per lane assignments
+  evaluate      Execute evaluation phase: readiness → BDD eval → verdict
+  eval-harness  Run an automated E2E model evaluation pipeline
+  submit        Start an increment from a demand package request
   status    Show current or historical run status
   inspect   Inspect run artifacts and step output
   cancel    Cancel a running job
@@ -54,6 +55,9 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if command == "evaluate" {
 		return runEvaluate(args[1:], stdout, stderr)
+	}
+	if command == "eval-harness" {
+		return runEvalHarness(args[1:], stdout, stderr)
 	}
 	if command == "submit" {
 		return runSubmit(args[1:], stdout, stderr)
