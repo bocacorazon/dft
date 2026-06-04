@@ -14,10 +14,10 @@ import (
 
 func runEvalHarness(args []string, stdout io.Writer, stderr io.Writer) int {
 	var demand string
-	var adapter string = "copilot"
-	var agentType string = "hermes"
-	var agentProfile string
+	var agentType string = "mock"
 	var agentModel string
+	var agentProfile string
+	var executor string = "speckit"
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -28,13 +28,6 @@ func runEvalHarness(args []string, stdout io.Writer, stderr io.Writer) int {
 			}
 			i++
 			demand = args[i]
-		case "--adapter":
-			if i+1 >= len(args) {
-				fmt.Fprintln(stderr, "--adapter requires a value")
-				return 2
-			}
-			i++
-			adapter = args[i]
 		case "--agent":
 			if i+1 >= len(args) {
 				fmt.Fprintln(stderr, "--agent requires a value (hermes or mock)")
@@ -42,13 +35,6 @@ func runEvalHarness(args []string, stdout io.Writer, stderr io.Writer) int {
 			}
 			i++
 			agentType = args[i]
-		case "--profile":
-			if i+1 >= len(args) {
-				fmt.Fprintln(stderr, "--profile requires a value")
-				return 2
-			}
-			i++
-			agentProfile = args[i]
 		case "--model":
 			if i+1 >= len(args) {
 				fmt.Fprintln(stderr, "--model requires a value")
@@ -56,6 +42,20 @@ func runEvalHarness(args []string, stdout io.Writer, stderr io.Writer) int {
 			}
 			i++
 			agentModel = args[i]
+		case "--profile":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "--profile requires a value")
+				return 2
+			}
+			i++
+			agentProfile = args[i]
+		case "--executor":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "--executor requires a value (speckit, stub, copilot)")
+				return 2
+			}
+			i++
+			executor = args[i]
 		default:
 			if strings.HasPrefix(args[i], "--") {
 				fmt.Fprintf(stderr, "unknown flag %q\n", args[i])
@@ -92,11 +92,13 @@ func runEvalHarness(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 
-	h := harness.New(dftBinary, designAgent, adapter)
+	h := harness.New(dftBinary, designAgent, executor)
 
 	fmt.Fprintf(stdout, "Starting eval-harness run...\n")
 	fmt.Fprintf(stdout, "  Agent:   %s\n", designAgent.Name())
-	fmt.Fprintf(stdout, "  Adapter: %s\n", adapter)
+	if agentModel != "" {
+		fmt.Fprintf(stdout, "  Model:   %s\n", agentModel)
+	}
 	fmt.Fprintf(stdout, "  Demand:  %s\n", demand)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
@@ -121,11 +123,15 @@ func runEvalHarness(args []string, stdout io.Writer, stderr io.Writer) int {
 
 	if !result.BuildOK {
 		fmt.Fprintf(stdout, "Build:      FAILED\n")
+		fmt.Fprintf(stdout, "Build Output: %s\n", result.BuildOutput)
 	} else {
 		fmt.Fprintf(stdout, "Build:      OK\n")
 	}
 
 	fmt.Fprintf(stdout, "Evaluation: %s\n", result.EvalVerdict)
+	if result.EvalOutput != "" {
+		fmt.Fprintf(stdout, "Eval Output: %s\n", result.EvalOutput)
+	}
 
 	// Dump JSON result for programmatic parsing
 	fmt.Fprintf(stdout, "\nJSON Report:\n")

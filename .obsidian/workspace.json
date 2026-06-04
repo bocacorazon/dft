@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "docs/000-foundation/overview.md",
+                "file": "docs/user-manual.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "overview"
+              "title": "user-manual"
             }
           }
         ]
@@ -185,17 +185,18 @@
   },
   "active": "16fc18bd39b05481",
   "lastOpenFiles": [
-    "internal/app/v2_status.go",
-    "internal/app/evaluate_command.go",
-    "internal/app/build_command.go",
-    "internal/orchestration/v2/speckit_executor.go",
-    "internal/orchestration/v2/dispatcher_test.go",
-    "internal/orchestration/v2/dispatcher.go",
-    "internal/orchestration/v2/stub_executor.go",
-    "internal/orchestration/v2/executor.go",
-    "internal/orchestration/v2",
-    "internal/domain/v2/contracts.go",
-    "internal/domain/v2/orchestration.go",
+    "internal/adapters/hermes/hermes_test.go",
+    "internal/adapters/hermes/hermes.go",
+    "internal/adapters/hermes",
+    "bin/dft",
+    "bin",
+    "internal/app/eval_harness_command.go",
+    "internal/eval/harness/harness_test.go",
+    "internal/eval/harness/mock_agent.go",
+    "internal/eval/harness/hermes_agent.go",
+    "internal/eval/harness/repo.go",
+    "internal/eval/harness/harness.go",
+    "docs/000-foundation/overview.md",
     "docs/user-manual.md",
     "docs/000-foundation/quickstart.md",
     "docs/000-foundation/eval-framework-design.md",
@@ -203,7 +204,6 @@
     "docs/000-foundation/speckit-flow-enhancements.md",
     "docs/000-foundation/implementation-plan.md",
     "docs/000-foundation/orchestrator-dsl.md",
-    "docs/000-foundation/overview.md",
     "docs/research/bdd-feature.md",
     "docs/research/verification.md"
   ]

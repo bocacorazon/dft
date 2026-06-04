@@ -158,6 +158,16 @@ func runBuild(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 
+	// Build artifact manifest from spec results
+	artifacts := make([]domain.ArtifactRef, 0, len(result.SpecResults))
+	for _, sr := range result.SpecResults {
+		artifacts = append(artifacts, sr.Artifacts...)
+	}
+	result.ArtifactManifest = domain.ArtifactManifest{
+		DemandPackageID: runID,
+		Artifacts:       artifacts,
+	}
+
 	// Save result
 	if err := writeOrchestrationResult(runID, result); err != nil {
 		fmt.Fprintf(stderr, "save orchestration result: %v\n", err)
