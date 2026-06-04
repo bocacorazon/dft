@@ -14,6 +14,7 @@ import (
 	"github.com/bocacorazon/dft/internal/adapters/agentstub"
 	"github.com/bocacorazon/dft/internal/adapters/copilot"
 	gitadapter "github.com/bocacorazon/dft/internal/adapters/git"
+	"github.com/bocacorazon/dft/internal/adapters/hermes"
 	"github.com/bocacorazon/dft/internal/adapters/state"
 	"github.com/bocacorazon/dft/internal/adapters/verify"
 	"github.com/bocacorazon/dft/internal/domain"
@@ -256,6 +257,15 @@ func selectAgentAdapter(name string, copilotBinary string, runID string, agentTi
 			Cwd:           ".",
 			TranscriptDir: filepath.Join(".dft", "runs", runID, "transcripts"),
 			Timeout:       agentTimeout,
+			Env:           []string{"COPILOT_MACRO_FLOW=true"},
+		}, nil
+	case "hermes":
+		return hermes.Adapter{
+			Binary:        copilotBinary,
+			Cwd:           ".",
+			TranscriptDir: filepath.Join(".dft", "runs", runID, "transcripts"),
+			Timeout:       agentTimeout,
+			Env:           []string{"HERMES_MACRO_FLOW=true"},
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown adapter %q", name)
