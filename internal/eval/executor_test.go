@@ -22,7 +22,7 @@ func TestExecutorRunsCLIPackAndWritesEvaluationArtifact(t *testing.T) {
 	}
 
 	result, err := executor.Execute(context.Background(), "run-123", readyCLI(), domain.EvalPlan{
-		DemandPackageID: "demand-1",
+		IncrementPackageID: "increment-1",
 		RequirementIDs:  []string{"REQ-001"},
 		Packs: []domain.BDDPack{{
 			ID:        "cli-pack",
@@ -75,7 +75,7 @@ func TestExecutorRunsFilePack(t *testing.T) {
 			Path:       "out.txt",
 		}},
 	}, domain.EvalPlan{
-		DemandPackageID: "demand-1",
+		IncrementPackageID: "increment-1",
 		Packs: []domain.BDDPack{{
 			ID:        "file-pack",
 			SurfaceID: "files",
@@ -119,7 +119,7 @@ func TestExecutorRunsHTTPPack(t *testing.T) {
 			URI:        server.URL,
 		}},
 	}, domain.EvalPlan{
-		DemandPackageID: "demand-1",
+		IncrementPackageID: "increment-1",
 		Packs: []domain.BDDPack{{
 			ID:        "api-pack",
 			SurfaceID: "api",
@@ -151,7 +151,7 @@ func TestExecutorBlocksWhenReadinessBlocked(t *testing.T) {
 			Message: "missing surface",
 		}},
 	}, domain.EvalPlan{
-		DemandPackageID: "demand-1",
+		IncrementPackageID: "increment-1",
 		Packs: []domain.BDDPack{{
 			ID:        "pack",
 			SurfaceID: "cli",

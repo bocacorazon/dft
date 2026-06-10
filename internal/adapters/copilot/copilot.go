@@ -140,6 +140,9 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 		"-s",
 		"--output-format", "text",
 	}
+	if request.Model != "" {
+		args = append(args, "--model", request.Model)
+	}
 	if request.AllowTools {
 		args = append(args, "--allow-all", "--autopilot")
 	}

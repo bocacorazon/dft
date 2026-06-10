@@ -7,19 +7,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bocacorazon/dft/internal/adapters/agentstub"
 	"github.com/bocacorazon/dft/internal/adapters/copilot"
-	gitadapter "github.com/bocacorazon/dft/internal/adapters/git"
 	"github.com/bocacorazon/dft/internal/adapters/hermes"
 	"github.com/bocacorazon/dft/internal/adapters/state"
 	"github.com/bocacorazon/dft/internal/adapters/verify"
 	"github.com/bocacorazon/dft/internal/domain"
 	"github.com/bocacorazon/dft/internal/flow"
-	"github.com/bocacorazon/dft/internal/intake"
 	"github.com/bocacorazon/dft/internal/orchestration"
 	"github.com/bocacorazon/dft/internal/ports"
 )
@@ -30,16 +27,18 @@ Usage:
   dft <command> [arguments]
 
 Commands:
-  build         Execute orchestration phase: dispatch specs per lane assignments
+  build         Execute one frozen spec flow from explicit runtime inputs
   evaluate      Execute evaluation phase: readiness → BDD eval → verdict
   eval-harness  Run an automated E2E model evaluation pipeline
-  submit        Start an increment from a demand package request
+  submit        Execute a WBS DAG by dispatching frozen spec flows
   status    Show current or historical run status
   inspect   Inspect run artifacts and step output
   cancel    Cancel a running job
   resume    Resume an interrupted job
   init      Provision dft assets in a target repository
   sync      Update provisioned dft assets
+  schema    Output JSON Schema for a contract type (e.g. increment-package)
+  validate  Validate a JSON file against a contract type
   help      Show this help text
 `
 
@@ -82,169 +81,16 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if command == "init" || command == "sync" {
 		return provisionAssets(command, args[1:], stdout, stderr)
 	}
+	if command == "schema" {
+		return runSchema(args[1:], stdout, stderr)
+	}
+	if command == "validate" {
+		return runValidate(args[1:], stdout, stderr)
+	}
 
 	fmt.Fprintf(stderr, "unknown command %q\n\n", command)
 	fmt.Fprint(stderr, helpText)
 	return 2
-}
-
-func runSubmit(args []string, stdout io.Writer, stderr io.Writer) int {
-	adapterName := "stub"
-	dogfood := false
-	fullProcess := false
-	copilotBinary := ""
-	dryRun := false
-	holdIncrement := false
-	evalRetries := 1
-	agentTimeout := 30 * time.Minute
-	var demandParts []string
-
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--adapter":
-			if i+1 >= len(args) {
-				fmt.Fprintln(stderr, "--adapter requires a value")
-				return 2
-			}
-			i++
-			adapterName = args[i]
-		case "--copilot-binary":
-			if i+1 >= len(args) {
-				fmt.Fprintln(stderr, "--copilot-binary requires a value")
-				return 2
-			}
-			i++
-			copilotBinary = args[i]
-		case "--dry-run":
-			dryRun = true
-		case "--dogfood":
-			dogfood = true
-		case "--full", "--execute":
-			fullProcess = true
-		case "--hold-increment", "--no-merge":
-			holdIncrement = true
-		case "--eval-retries":
-			if i+1 >= len(args) {
-				fmt.Fprintln(stderr, "--eval-retries requires a value")
-				return 2
-			}
-			i++
-			parsed, err := strconv.Atoi(args[i])
-			if err != nil || parsed < 0 {
-				fmt.Fprintln(stderr, "--eval-retries requires a non-negative integer")
-				return 2
-			}
-			evalRetries = parsed
-		case "--agent-timeout":
-			if i+1 >= len(args) {
-				fmt.Fprintln(stderr, "--agent-timeout requires a duration")
-				return 2
-			}
-			i++
-			parsed, err := time.ParseDuration(args[i])
-			if err != nil || parsed <= 0 {
-				fmt.Fprintln(stderr, "--agent-timeout requires a positive duration, for example 30m")
-				return 2
-			}
-			agentTimeout = parsed
-		default:
-			demandParts = append(demandParts, args[i])
-		}
-	}
-
-	runID := os.Getenv("DFT_RUN_ID")
-	if runID == "" {
-		runID = "run-" + time.Now().UTC().Format("20060102-150405")
-	}
-	adapter, err := selectAgentAdapter(adapterName, copilotBinary, runID, agentTimeout)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-
-	service := intake.Service{
-		Adapter: adapter,
-		RunID:   runID,
-		RootDir: ".",
-	}
-	demandPackage, err := service.CreateDemandPackage(context.Background(), strings.Join(demandParts, " "))
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	store := state.JSONStore{RootDir: "."}
-	manifest := domain.RunManifest{ID: runID, Status: domain.RunRunning, Adapter: adapterName, RawDemand: demandPackage.RawDemand}
-	sqlStore, err := state.OpenSQLiteStore(filepath.Join(".dft", "state.db"))
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	defer sqlStore.Close()
-	if err := saveRunState(store, sqlStore, manifest); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	jobID := "job-" + runID
-	if err := sqlStore.Enqueue(jobID, runID); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	if err := sqlStore.SetJobStatus(jobID, domain.JobRunning); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	if fullProcess || dogfood {
-		fmt.Fprintln(stderr, "warning: --full/--dogfood is deprecated. Use the phase commands instead:")
-		fmt.Fprintln(stderr, "  dft intent   → refine demand with Hermes agents")
-		fmt.Fprintln(stderr, "  dft solution → design test plan, WBS, and lanes")
-		fmt.Fprintln(stderr, "  dft build    → dispatch specs to executors")
-		fmt.Fprintln(stderr, "  dft evaluate → run BDD evaluation")
-		if err := runFullProcessLoop(context.Background(), demandPackage, adapter, dryRun, holdIncrement, evalRetries); err != nil {
-			manifest.Status = domain.RunFailed
-			if stateErr := recordFailedRun(store, sqlStore, jobID, manifest); stateErr != nil {
-				fmt.Fprintf(stderr, "record failure state: %v\n", stateErr)
-			}
-			fmt.Fprintln(stderr, err)
-			return 2
-		}
-		if dogfood {
-			if err := runDogfoodFeedbackLoop(context.Background(), demandPackage, adapter, dryRun); err != nil {
-				manifest.Status = domain.RunFailed
-				if stateErr := recordFailedRun(store, sqlStore, jobID, manifest); stateErr != nil {
-					fmt.Fprintf(stderr, "record failure state: %v\n", stateErr)
-				}
-				fmt.Fprintln(stderr, err)
-				return 2
-			}
-		}
-		manifest.Status = domain.RunSucceeded
-		if err := sqlStore.SetJobStatus(jobID, domain.JobDone); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 2
-		}
-		if err := saveRunState(store, sqlStore, manifest); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 2
-		}
-		if dogfood {
-			fmt.Fprintf(stdout, "dogfood loop complete for run %s\n", runID)
-			return 0
-		}
-		fmt.Fprintf(stdout, "full process complete for run %s\n", runID)
-		return 0
-	}
-	manifest.Status = domain.RunSucceeded
-	if err := sqlStore.SetJobStatus(jobID, domain.JobDone); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	if err := saveRunState(store, sqlStore, manifest); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-
-	fmt.Fprintf(stdout, "created demand package %s for run %s\n", demandPackage.ID, runID)
-	return 0
 }
 
 func selectAgentAdapter(name string, copilotBinary string, runID string, agentTimeout time.Duration) (ports.AgentAdapter, error) {
@@ -296,7 +142,7 @@ func printManifests(manifests []domain.RunManifest, stdout io.Writer) int {
 		return 0
 	}
 	for _, manifest := range manifests {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\n", manifest.ID, manifest.Status, manifest.RawDemand)
+		fmt.Fprintf(stdout, "%s\t%s\t%s\n", manifest.ID, manifest.Status, manifest.RawIncrement)
 		for _, summary := range loadSpecLaneSummaries(manifest.ID) {
 			fmt.Fprintf(stdout, "lane/%s\tlatest_success=%s\tblocked=%s\tauto_resume=%t\trecommendation=%s\n", summary.SpecID, summary.LatestSuccessfulStage, summary.BlockingStage, summary.AutomaticResumeSafe, summary.ResumeRecommendation)
 		}
@@ -436,17 +282,6 @@ func loadRunManifest(id string, jsonStore state.JSONStore) (domain.RunManifest, 
 		return sqlStore.Load(id)
 	}
 	return jsonStore.Load(id)
-}
-
-func loadSingleSpecForRun(runID string) (domain.SpecRef, error) {
-	wbs, err := loadWBSForRun(runID)
-	if err != nil {
-		return domain.SpecRef{}, err
-	}
-	if len(wbs.Specs) != 1 {
-		return domain.SpecRef{}, fmt.Errorf("resume currently supports exactly one spec, found %d", len(wbs.Specs))
-	}
-	return wbs.Specs[0], nil
 }
 
 func loadResumableSpecForRun(runID string) (domain.SpecRef, error) {
@@ -589,90 +424,3 @@ func printDurableRunDetails(runID string, stdout io.Writer, stderr io.Writer) in
 	return 0
 }
 
-func runFullProcessLoop(ctx context.Context, demandPackage domain.DemandPackage, adapter ports.AgentAdapter, dryRun bool, holdIncrement bool, evalRetries int) error {
-	gitPort := ports.GitPort(gitadapter.Adapter{RepoDir: "."})
-	if dryRun {
-		gitPort = dryRunGit{defaultBranch: "main"}
-	}
-	if _, err := (orchestration.MacroOrchestrator{
-		Agent: adapter,
-		Worktrees: orchestration.WorktreeManager{
-			Git:          gitPort,
-			WorktreeRoot: filepath.Join(".dft", "worktrees"),
-		},
-		ArtifactRoot:     ".",
-		Verifier:         verify.Checker{RootDir: "."},
-		CommitLocalSteps: !dryRun,
-		HoldIncrement:    holdIncrement,
-		MaxEvalRetries:   evalRetries,
-	}).Execute(ctx, demandPackage); err != nil {
-		return fmt.Errorf("execute macro loop: %w", err)
-	}
-	return nil
-}
-
-func runDogfoodFeedbackLoop(ctx context.Context, demandPackage domain.DemandPackage, adapter ports.AgentAdapter, dryRun bool) error {
-	runner := flow.Runner{Agent: adapter, ArtifactRoot: ".", RunID: demandPackage.ID, CommitLocalSteps: !dryRun}
-	if _, err := runner.Execute(ctx, flow.Definition{Steps: []flow.Step{{
-		ID:        "dogfood-intake",
-		Type:      flow.StepAgent,
-		AgentName: "dft-intake.agent.md",
-		Prompt:    "Generate feedback seed for the next dft increment",
-		Demand:    demandPackage.RawDemand,
-	}}}); err != nil {
-		return fmt.Errorf("run dogfood lane: %w", err)
-	}
-
-	dogfoodFeedback := verify.Checker{RootDir: "."}.Run(ctx, []domain.Check{
-		{ID: "wbs", Kind: domain.CheckFileExists, Args: []string{filepath.Join(".dft", "runs", demandPackage.ID, "design", "wbs.json")}},
-		{ID: "lane-assignments", Kind: domain.CheckFileExists, Args: []string{filepath.Join(".dft", "runs", demandPackage.ID, "design", "lane-assignments.json")}},
-	})
-	if dogfoodFeedback.Status != domain.VerdictPass {
-		return fmt.Errorf("evaluate dogfood feedback run: %s", dogfoodFeedback.Status)
-	}
-	if err := writeJSONFile(filepath.Join(".dft", "runs", demandPackage.ID, "dogfood-feedback-evaluation.json"), dogfoodFeedback); err != nil {
-		return fmt.Errorf("write dogfood feedback evaluation: %w", err)
-	}
-
-	next := demandPackage
-	next.ID = demandPackage.ID + "-next"
-	next.RawDemand = "Use dogfood findings to improve: " + demandPackage.RawDemand
-	if err := writeJSONFile(filepath.Join(".dft", "runs", demandPackage.ID, "next-demand-package.json"), next); err != nil {
-		return fmt.Errorf("write next demand package: %w", err)
-	}
-	return nil
-}
-
-func writeJSONFile(path string, value any) error {
-	content, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode %s: %w", filepath.Base(path), err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create artifact directory: %w", err)
-	}
-	if err := os.WriteFile(path, append(content, '\n'), 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
-	}
-	return nil
-}
-
-type dryRunGit struct {
-	defaultBranch string
-}
-
-func (g dryRunGit) DefaultBranch(context.Context) (string, error) {
-	return g.defaultBranch, nil
-}
-
-func (dryRunGit) CreateBranch(context.Context, ports.CreateBranchRequest) error {
-	return nil
-}
-
-func (dryRunGit) CreateWorktree(context.Context, ports.CreateWorktreeRequest) error {
-	return nil
-}
-
-func (dryRunGit) Merge(context.Context, ports.MergeRequest) error {
-	return nil
-}

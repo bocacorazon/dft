@@ -43,7 +43,7 @@ printf 'warn\n' >&2
 	}
 	response, err := adapter.Invoke(context.Background(), ports.AgentRequest{
 		AgentName: "dft-intake.agent.md",
-		Prompt:    "Normalize demand",
+		Prompt:    "Normalize increment",
 		RunID:     "run-123",
 	})
 
@@ -66,7 +66,7 @@ printf 'warn\n' >&2
 	if err := json.Unmarshal(rawArgv, &argv); err != nil {
 		t.Fatalf("argv transcript invalid JSON: %v\n%s", err, rawArgv)
 	}
-	if !containsSequence(argv, "--agent", "dft-intake") || !containsSequence(argv, "-p", "Normalize demand") {
+	if !containsSequence(argv, "--agent", "dft-intake") || !containsSequence(argv, "-p", "Normalize increment") {
 		t.Fatalf("argv = %#v, want --agent and -p prompt", argv)
 	}
 	if containsValue(argv, "--allow-all") {

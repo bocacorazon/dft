@@ -1,6 +1,6 @@
 package domain
 
-// JobStatus is the durable state of queued demand-package work.
+// JobStatus is the durable state of queued increment-package work.
 type JobStatus string
 
 const (

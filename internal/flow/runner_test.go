@@ -29,8 +29,8 @@ func TestRunnerExecutesAgentStepAndWritesAuditArtifacts(t *testing.T) {
 			ID:        "intake",
 			Type:      StepAgent,
 			AgentName: "dft-intake.agent.md",
-			Prompt:    "Normalize demand",
-			Demand:    "Build intake loop",
+			Prompt:    "Normalize increment",
+			Increment:    "Build intake loop",
 		}},
 	})
 
@@ -89,8 +89,8 @@ func TestRunnerAttachesProjectContextAndWritesContextHashes(t *testing.T) {
 			ID:        "intake",
 			Type:      StepAgent,
 			AgentName: "dft-intake.agent.md",
-			Prompt:    "Normalize demand",
-			Demand:    "Build intake loop",
+			Prompt:    "Normalize increment",
+			Increment:    "Build intake loop",
 		}},
 	})
 
@@ -132,7 +132,7 @@ func TestRunnerCanDisableProjectContext(t *testing.T) {
 			ID:        "intake",
 			Type:      StepAgent,
 			AgentName: "dft-intake.agent.md",
-			Prompt:    "Normalize demand",
+			Prompt:    "Normalize increment",
 			NoContext: true,
 		}},
 	})

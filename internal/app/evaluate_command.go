@@ -45,7 +45,7 @@ func runEvaluate(args []string, stdout io.Writer, stderr io.Writer) int {
 
 	// Build eval input from contracts
 	evalInput := dftEval.AuthorInput{
-		DemandPackage:    domain.DemandPackage{ID: runID},
+		IncrementPackage:    domain.IncrementPackage{ID: runID},
 		SurfaceContract:  sd.EvalSurfaceContract,
 		ArtifactManifest: orchResult.ArtifactManifest,
 		StepCatalog:      dftEval.DefaultStepCatalog(),

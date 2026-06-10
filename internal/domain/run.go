@@ -15,5 +15,5 @@ type RunManifest struct {
 	ID        string    `json:"id"`
 	Status    RunStatus `json:"status"`
 	Adapter   string    `json:"adapter"`
-	RawDemand string    `json:"raw_demand"`
+	RawIncrement string    `json:"raw_increment"`
 }

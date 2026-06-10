@@ -27,8 +27,8 @@ func (g ReadinessGate) Check(ctx context.Context, contract domain.EvalSurfaceCon
 	if err := manifest.Validate(); err != nil {
 		return domain.EvalReady{}, fmt.Errorf("validate artifact manifest: %w", err)
 	}
-	if contract.DemandPackageID != manifest.DemandPackageID {
-		return domain.EvalReady{}, fmt.Errorf("contract demand package %q does not match manifest %q", contract.DemandPackageID, manifest.DemandPackageID)
+	if contract.IncrementPackageID != manifest.IncrementPackageID {
+		return domain.EvalReady{}, fmt.Errorf("contract increment package %q does not match manifest %q", contract.IncrementPackageID, manifest.IncrementPackageID)
 	}
 
 	artifacts := make(map[string]domain.ArtifactRef, len(manifest.Artifacts))

@@ -1,177 +1,101 @@
-# Dark Factory Toolkit — End-to-End Process
+# Dark Factory Toolkit — Execution Process
 
-This document describes the **full dft process** as an operator-facing flow.
-It primarily focuses on **what each step consumes and what it produces**. In
-the macro-process section, it also names the command/agent that performs each
-step and whether that step is automatic or operator-driven.
+This document describes the **execution-layer** behavior of dft.
 
-It covers the core full-process path equivalent to:
+It focuses on what `dft submit` and `dft build` consume and what they produce.
+It intentionally treats upstream design as an external concern. dft only cares
+that the required execution artifacts exist and conform to the expected shape.
 
-- repository prepared with dft assets
-- a demand is submitted for execution
-- design, spec execution, evaluation, review, and merge are run
+For upstream design docs, see [../design-phase/README.md](../design-phase/README.md).
 
-It does **not** describe intake-only submissions or dogfood-only add-on
-artifacts.
+## Primary execution inputs
 
-## Primary process inputs
-
-The full process starts with these inputs:
+### `dft submit`
 
 | Input | Description |
 | --- | --- |
-| Repository | The target Git repository where work will be planned, implemented, and merged. |
-| dft assets | Provisioned flows, agents, context, and templates in the repository. |
-| Demand | The requested outcome, either as submitted text or a demand-package equivalent. |
-| Run ID | The identifier for one full execution attempt. |
-| Default branch | The repository branch that represents the release baseline. |
-| Runtime policy | Operator choices such as hold-increment vs final merge, retry limits, and adapter selection. |
+| Repository | The target Git repository where execution happens. |
+| dft assets | Provisioned flows, agents, context, and state files in the repository. |
+| WBS JSON | The DAG of specs to execute. |
+| Optional base branch | Overrides or supplies the WBS `base_branch`; defaults to the repo default branch when absent. |
+| Optional increment branch | Overrides or supplies the WBS `increment_branch`; specs branch from and merge back into it. |
+| Workflow name or flow path | The execution flow used for each spec unless overridden per spec. |
+| Model config | A file mapping model families to `xhigh`, `high`, `medium`, and `low`. |
+| Optional model family | The family to use for workflow model-tier resolution. |
+| Optional callback URL | A completion-report endpoint for spec/run notifications. |
 
-## Preparation steps
-
-These steps usually happen before the full process starts.
-
-| Step | Inputs | Outputs |
-| --- | --- | --- |
-| `dft init` | Repository | Initial dft scaffold in the repository, including `.dft/`, required agent files, flows, and context files. |
-| `dft sync` | Repository with existing dft assets | Updated in-repo dft assets aligned with the current toolkit version. |
-| `dft submit --full` | Demand, repository, runtime policy | A new run under `.dft/runs/<run-id>/` and the start of the full orchestration process. |
-
-## Macro process
-
-This is the top-level process for one submitted demand.
-
-| Step | Inputs | Outputs | Commands / agents used | Invocation |
-| --- | --- | --- | --- | --- |
-| 1. Intent / demand-package creation | Raw demand, operator context | `intent/demand-package.json` containing the normalized demand, acceptance criteria, and run identity. | Kickoff: `dft submit --full`; authoring: `dft-intake.agent.md` via `internal/intake.Service.CreateDemandPackage` | Human starts the run; the agent call is automatic after submission. |
-| 2. Increment setup | Demand-package, repository default branch | A new increment branch for the run. | `WorktreeManager.BeginIncrement` (git branch creation from the default branch) | Automatic. |
-| 3. WBS authoring | Demand-package | `design/wbs.json` describing the specs that make up the increment. | `dft-wbs-builder.agent.md` via `SpecPlanner.buildWBS` | Automatic. |
-| 4. Lane assignment | Demand-package, WBS | `design/lane-assignments.json` assigning one lane per spec. | `dft-lane-selector.agent.md` via `SpecPlanner.selectLanes` | Automatic. |
-| 5. Eval-surface authoring | Demand-package, WBS | `design/eval-surfaces.json` declaring the observable surfaces that eval will use. | `dft-eval-surface-author.agent.md` via `eval.SurfaceContractAuthor.Author` | Automatic. |
-| 6. Spec execution loop | WBS, lane assignments, increment branch | One completed lane run per spec, merged back into the increment branch on success. | Current engine path: `.dft/flows/spec-lane.yaml` / `LoadSpecKitLane`, which runs `speckit.specify`, `speckit.plan`, `speckit.tasks`, `speckit.analyze`, `speckit.implement`, `dft-code-review.agent.md`, `gh_issues_from_findings`, `git_commit_all`, `git_rebase_merge_back`, and `dft-mergeback.agent.md` | Automatic in the full macro run; spec/plan gates inside the lane are auto-approved here. |
-| 7. Eval readiness | Increment branch, eval surfaces, available artifacts | `eval/eval-ready.json` declaring whether the increment is ready for evaluation. | `eval.ReadinessGate.Check` via `eval.Orchestrator.Run` | Automatic. |
-| 8. Eval-plan authoring | Demand-package, WBS, eval surfaces, readiness state | `eval/eval-plan.json` when readiness passes. | `dft-eval-plan-author.agent.md` via `eval.ArtifactOnlyPlanAuthor.Author` | Automatic. |
-| 9. Eval execution | Eval plan, ready surfaces/artifacts | `eval/evaluation.json` with verdict, findings, and evidence references. | `eval.Executor.Execute` plus verifier-backed deterministic checks | Automatic. |
-| 10. Fix planning on eval failure | Demand-package, eval findings | `fix-plan/wbs-amendment.json` or equivalent remediation plan describing new specs to add. | `dft-fix-planner.agent.md` via `review.FixPlanner.Plan`; remediation specs then re-enter the spec execution loop | Automatic when eval fails. |
-| 11. Final review | Increment branch diff, evaluation pass state | `review/final-review.json` with approve/block decision and findings. | `dft-review.agent.md` via `review.FinalReviewer.Review` | Automatic. |
-| 12. Fix planning on review failure | Demand-package, review findings | A remediation WBS amendment that adds new specs for review findings. | `dft-fix-planner.agent.md` via `review.FixPlanner.Plan`; remediation specs then re-enter spec execution and eval/review reruns | Automatic when final review blocks. |
-| 13. Final merge | Approved increment, passing evaluation, default branch | Increment branch merged to the default branch, unless increment-hold policy is active. | `WorktreeManager.CompleteIncrement` (git merge of increment into the default branch) | Automatic unless increment-hold policy is active; if held, a human merges later. |
-| 14. Run summary | Full run state | `macro-result.json` summarizing increment, design outputs, eval outputs, review outcome, and merge status. | `writeMacroResult` in `internal/orchestration/macro.go` | Automatic. |
-
-Current implementation note: the lane-assignment artifact is authored and
-persisted, but the macro runner currently executes the provisioned Speckit spec
-lane for every spec. In other words, lane selection is recorded at design time,
-but it does not yet switch the runtime to a different lane implementation.
-
-## Spec execution loop
-
-The following sequence runs once for each spec in the WBS.
-
-### Spec-loop inputs
+### `dft build`
 
 | Input | Description |
 | --- | --- |
-| Spec | The current unit of work from the WBS. |
-| Feature directory | The spec workspace path for the current spec. |
-| Spec branch | The branch/worktree used for the current spec. |
-| Increment branch | The branch that accumulates successful specs for the run. |
+| Repository | The target Git repository where execution happens. |
+| Prompt text or prompt file | The frozen implementation prompt for one spec. |
+| Workflow name or flow path | The execution flow for the spec. |
+| Feature slug | The spec/work identifier for the run. |
+| Optional increment branch | The branch the spec execution clones from and merges back into; defaults to the repo default branch. |
+| Model config | A file mapping model families to `xhigh`, `high`, `medium`, and `low`. |
+| Optional model family | The family to use for workflow model-tier resolution. |
 
-### Spec-loop steps
+These inputs may come from Hermes, another orchestration service, CI, or manual
+authoring. dft does not distinguish among those sources.
 
-| Step | Inputs | Outputs |
-| --- | --- | --- |
-| 1. Spec worktree creation | Current spec, increment branch | A spec worktree and spec branch for isolated execution. |
-| 2. `specify` | Spec description, feature directory | `spec.md` and `checklists/requirements.md` for the spec. |
-| 3. Capture feature directory | `specify` output | The resolved feature directory used by later steps. |
-| 4. Ensure spec branch context | Spec branch, feature directory | Working branch aligned for spec execution. |
-| 5. Build plan input | Spec ID, feature directory | The plan-stage prompt/input package. |
-| 6. Build analyze input | Spec ID, feature directory, known artifact paths | The analyze-stage prompt/input package. |
-| 7. Capture workflow branch | Current branch state | The branch identity used later by mergeback. |
-| 8. Review spec gate | Generated spec artifacts | Human approval to proceed from spec to plan. |
-| 9. `plan` | Spec ID, feature directory, spec artifacts | `plan.md`, `research.md`, and related plan artifacts. |
-| 10. Review plan gate | Generated plan artifacts | Human approval to proceed from plan to tasks. |
-| 11. Build tasks input | Spec ID, feature directory, spec + plan artifacts | The tasks-stage prompt/input package. |
-| 12. `tasks` | Spec ID, feature directory, spec + plan artifacts | `tasks.md` for the spec. |
-| 13. `analyze` | Spec ID, feature directory, `spec.md`, `plan.md`, `tasks.md` | Structured analysis output identifying blocking and non-blocking findings. |
-| 14. Analyze gate | Parsed analyze output | Pass/continue signal based on blocking findings. |
-| 15. `tasks` remediation (conditional) | Captured analyze output | Updated `tasks.md` after one remediation pass when blocking findings exist. |
-| 16. Build implement input | Spec ID, feature directory, `tasks.md` | The implement-stage prompt/input package. |
-| 17. `implement` / `code-review` loop | `tasks.md`, repo root, prior review findings if any | Updated code and tasks, plus review output; loop exits when there are no critical review findings or the loop limit is reached. |
-| 18. Issue handoff | Review findings | Follow-up issues for remaining non-blocking findings when issue creation is appropriate. |
-| 19. Commit before mergeback | Completed spec worktree | Final spec commit before integration. |
-| 20. Capture mergeback branch | Current branch state | The exact source branch for mergeback. |
-| 21. Mergeback attempt | Source/spec branch, increment branch | Rebased source branch ready for squash merge, or conflict state. |
-| 22. Mergeback resolution (conditional) | Rebase-conflict state | Resolved rebase state ready for finalization. |
-| 23. Mergeback finalization | Rebasing complete, source branch, increment branch | Squash merge committed into the increment branch; source branch deleted locally and remotely when applicable. |
-| 24. Mergeback verification | Mergeback-finalize output, repository git state | Verified mergeback postconditions, including clean state and tree equality. |
-
-## Step contracts inside the implement/review loop
-
-This loop is bounded and repeatable.
+## `dft submit` process
 
 | Step | Inputs | Outputs |
 | --- | --- | --- |
-| `implement` | Current `tasks.md`, spec context, repository root | Code and artifact changes for the spec, plus task-progress metadata. |
-| `code-review` | Current implementation state in the spec workspace | Structured review findings with severity levels. |
-| `review-clean` | Parsed code-review output | Pass/fail signal on whether critical findings remain. |
-| remediation input refresh | Review findings | A narrowed implement input focused on unresolved review findings. |
+| 1. Request validation | WBS path, workflow reference, branch overrides, model config path | A validated orchestration request. |
+| 2. WBS loading | WBS JSON | Parsed WBS with spec list, dependency graph, and branch envelope. |
+| 3. Branch resolution | WBS branch envelope, optional overrides, repository default branch | Resolved `base_branch` and `increment_branch` for the run. |
+| 4. Dependency scheduling | WBS DAG and prior spec results | The set of ready specs eligible for execution. |
+| 5. Single-spec dispatch | One ready spec plus shared workflow/model/branch inputs | One per-spec execution run. |
+| 6. Spec completion reporting | Spec result and optional callback URL | Callback payload for `spec.completed` when configured. |
+| 7. Run completion reporting | Aggregate run result and optional callback URL | Callback payload for `run.completed` when configured. |
+| 8. Run summary persistence | All spec results and resolved branch topology | `execution-orchestration.json` under `.dft/runs/<run-id>/`. |
 
-## Evaluation phase
-
-The evaluation phase is artifact-oriented and runs after spec work is merged
-into the increment branch.
+## `dft build` process
 
 | Step | Inputs | Outputs |
 | --- | --- | --- |
-| 1. Surface-to-artifact binding | Eval surface contract, available artifacts/endpoints | Bound readiness targets for each declared surface. |
-| 2. Readiness checks | Bound surfaces and declared readiness probes | `eval/eval-ready.json` with `pass` or `blocked` status and findings. |
-| 3. Eval-plan authoring | Demand-package, WBS, eval surfaces, readiness metadata | `eval/eval-plan.json` describing the eval scenarios/checks to run. |
-| 4. Eval execution | Eval plan, ready surfaces/artifacts | `eval/evaluation.json` with verdict, findings, coverage, and evidence references. |
-| 5. Evidence capture | Eval execution outputs | `eval/evidence/` containing captured artifacts/logs from evaluation. |
+| 1. Request validation | Prompt source, workflow reference, feature slug, increment branch, model config | A validated execution request. |
+| 2. Prompt loading | Prompt text or prompt file | The rendered execution prompt. |
+| 3. Workflow loading | Workflow name or flow path | A parsed flow definition. |
+| 4. Branch resolution | Explicit `increment_branch` or repository default branch | The branch context bound into the flow run. |
+| 5. Model resolution | Workflow `model_type` entries plus model config | A runnable flow with concrete model IDs. |
+| 6. Flow execution | Prompt, workflow, feature slug, branch context, repository context | Step artifacts under `.dft/runs/<run-id>/steps/`. |
+| 7. Result persistence | Final execution result plus resolved branch metadata | `execution-result.json` under `.dft/runs/<run-id>/`. |
 
-## Failure and remediation paths
+## WBS expectations
 
-These paths are conditional.
+The WBS is the orchestration contract. At minimum it must provide:
 
-| Trigger | Inputs | Outputs |
-| --- | --- | --- |
-| Analyze blocking findings | Analyze output | One `tasks` remediation pass for the current spec. |
-| Critical review findings | Review findings | Additional implement/review loop iterations, up to the configured limit. |
-| Eval blocked or failed | Evaluation findings | A WBS amendment adding remediation specs before re-evaluation. |
-| Final review blocked | Review findings | A WBS amendment adding remediation specs before a new review pass. |
-| Retry budget exhausted | Unresolved findings after bounded retries | An escalated item in inbox/blocked-run surfaces for operator attention. |
+- `demand_package_id`
+- optional `base_branch`
+- optional `increment_branch`
+- `specs[]`
+- for each spec: `id`, description or `prompt_path`, and acceptance criteria
 
-## Final states
+The current execution path also supports per-spec metadata such as:
 
-The process ends in one of these states.
+- `depends_on`
+- `workflow` or `workflow_path`
+- `feature_slug`
+- `model_family`
 
-| Final state | Meaning | Typical outputs |
-| --- | --- | --- |
-| Passed and merged | Evaluation passed, final review approved, increment merged to default branch | `macro-result.json`, `review/final-review.json`, merged default branch. |
-| Passed and held | Evaluation passed, final review approved, increment intentionally not merged yet | `macro-result.json` with increment-held state, increment branch preserved. |
-| Blocked by eval | Readiness or eval failed and remediation is required | `eval/eval-ready.json` and/or `eval/evaluation.json`, plus `fix-plan/wbs-amendment.json`. |
-| Blocked by final review | Evaluation passed but final review did not approve | `review/final-review.json`, plus a remediation WBS amendment. |
-| Escalated | Automatic retries/remediations were exhausted | Escalation/inbox artifacts for operator follow-up. |
+## Outputs
 
-## Primary artifacts produced by the whole process
+The main outputs of the execution layer are:
 
-| Phase | Primary outputs |
+| Output | Meaning |
 | --- | --- |
-| Intent | `intent/demand-package.json` |
-| Design | `design/wbs.json`, `design/lane-assignments.json`, `design/eval-surfaces.json` |
-| Per-spec execution | `spec.md`, `checklists/requirements.md`, `plan.md`, `research.md`, `tasks.md`, step-level run artifacts |
-| Eval | `eval/eval-ready.json`, `eval/eval-plan.json`, `eval/evaluation.json`, `eval/evidence/` |
-| Review | `review/final-review.json` |
-| Remediation | `fix-plan/wbs-amendment.json` when applicable |
-| Run summary | `macro-result.json` |
+| `.dft/runs/<run-id>/execution-result.json` | Single-spec execution summary. |
+| `.dft/runs/<run-id>/execution-orchestration.json` | WBS orchestration summary. |
+| `.dft/runs/<run-id>/steps/<step-id>/...` | Step-level audit artifacts. |
+| callback payloads | Optional external completion notifications. |
 
-## Reading this process as a contract
+## Relationship to design
 
-The key idea is:
+dft no longer needs to own the design phase in order to be useful. The design
+phase can live elsewhere as long as it emits the frozen inputs described above.
 
-- each step accepts a clearly defined set of upstream artifacts or decisions
-- each step produces a clearly defined downstream artifact, decision, or branch state
-- later steps consume those outputs instead of reconstructing intent from
-  hidden implementation context
-
-That is the operational contract for the full dft process.
+That separation is the core paradigm: **design produces artifacts; dft executes
+artifacts**.

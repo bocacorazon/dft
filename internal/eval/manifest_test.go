@@ -7,8 +7,8 @@ import (
 )
 
 func TestManifestFromSurfaceContractCollectsUniqueArtifacts(t *testing.T) {
-	manifest := ManifestFromSurfaceContract("demand-1", domain.EvalSurfaceContract{
-		DemandPackageID: "demand-1",
+	manifest := ManifestFromSurfaceContract("increment-1", domain.EvalSurfaceContract{
+		IncrementPackageID: "increment-1",
 		Surfaces: []domain.EvalSurface{
 			{ID: "cli", Kind: domain.EvalSurfaceCLI, ArtifactRef: "bin/app"},
 			{ID: "cli-smoke", Kind: domain.EvalSurfaceCLI, ArtifactRef: "bin/app"},

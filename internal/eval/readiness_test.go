@@ -20,7 +20,7 @@ func TestReadinessGateBindsArtifactAndRunsProbe(t *testing.T) {
 	gate := ReadinessGate{RootDir: root}
 
 	ready, err := gate.Check(context.Background(), evalSurfaceContract(), domain.ArtifactManifest{
-		DemandPackageID: "demand-1",
+		IncrementPackageID: "increment-1",
 		Artifacts: []domain.ArtifactRef{{
 			ID:   "cli-bin",
 			Kind: domain.ArtifactBinary,
@@ -43,7 +43,7 @@ func TestReadinessGateBlocksMissingArtifact(t *testing.T) {
 	gate := ReadinessGate{RootDir: t.TempDir()}
 
 	ready, err := gate.Check(context.Background(), evalSurfaceContract(), domain.ArtifactManifest{
-		DemandPackageID: "demand-1",
+		IncrementPackageID: "increment-1",
 		Artifacts: []domain.ArtifactRef{{
 			ID:   "other",
 			Kind: domain.ArtifactBinary,
@@ -64,7 +64,7 @@ func TestReadinessGateBlocksMissingArtifact(t *testing.T) {
 
 func evalSurfaceContract() domain.EvalSurfaceContract {
 	return domain.EvalSurfaceContract{
-		DemandPackageID: "demand-1",
+		IncrementPackageID: "increment-1",
 		Surfaces: []domain.EvalSurface{{
 			ID:               "cli",
 			Kind:             domain.EvalSurfaceCLI,

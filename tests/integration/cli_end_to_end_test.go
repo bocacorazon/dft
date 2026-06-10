@@ -29,7 +29,7 @@ func TestCLIEndToEndStubRunInFreshRepo(t *testing.T) {
 		t.Fatalf("status output missing run success:\n%s", status)
 	}
 	inspect := run(t, repo, nil, binary, "inspect", "e2e-run")
-	for _, artifact := range []string{"intent/demand-package.json", "eval/eval-plan.json", "review/final-review.json", "macro-result.json"} {
+	for _, artifact := range []string{"intent/increment-package.json", "eval/eval-plan.json", "review/final-review.json", "macro-result.json"} {
 		if !strings.Contains(inspect, artifact) {
 			t.Fatalf("inspect output missing %s:\n%s", artifact, inspect)
 		}

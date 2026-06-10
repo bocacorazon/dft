@@ -79,11 +79,12 @@ type Step struct {
 	CommandInput  string            `json:"command_input,omitempty"`
 	Integration   string            `json:"integration,omitempty"`
 	Model         string            `json:"model,omitempty"`
+	ModelType     string            `json:"model_type,omitempty"`
 	AgentName     string            `json:"agent_name,omitempty"`
 	OutputMode    AgentOutputMode   `json:"output_mode,omitempty"`
 	AllowTools    bool              `json:"allow_tools,omitempty"`
 	Prompt        string            `json:"prompt,omitempty"`
-	Demand        string            `json:"demand,omitempty"`
+	Increment        string            `json:"increment,omitempty"`
 	Cwd           string            `json:"cwd,omitempty"`
 	Env           map[string]string `json:"env,omitempty"`
 	Command       []string          `json:"command,omitempty"`
@@ -1384,8 +1385,9 @@ func renderStep(step Step, result *Result) Step {
 	step.CommandInput = renderString(step.CommandInput, result)
 	step.Integration = renderString(step.Integration, result)
 	step.Model = renderString(step.Model, result)
+	step.ModelType = renderString(step.ModelType, result)
 	step.Prompt = renderString(step.Prompt, result)
-	step.Demand = renderString(step.Demand, result)
+	step.Increment = renderString(step.Increment, result)
 	step.Cwd = renderString(step.Cwd, result)
 	step.Workflow = renderString(step.Workflow, result)
 	step.Message = renderString(step.Message, result)
@@ -1624,10 +1626,11 @@ func (r Runner) executeAgentStep(ctx context.Context, step Step, stepDir string,
 	request := ports.AgentRequest{
 		AgentName:  step.AgentName,
 		Prompt:     prompt,
-		Demand:     step.Demand,
+		Increment:     step.Increment,
 		RunID:      r.RunID,
 		Cwd:        step.Cwd,
 		Env:        step.Env,
+		Model:      step.Model,
 		AllowTools: step.AllowTools,
 	}
 	response, err := r.Agent.Invoke(ctx, request)

@@ -1,2 +1,2 @@
-// Package eval implements artifact-only demand-package evaluation.
+// Package eval implements artifact-only increment-package evaluation.
 package eval

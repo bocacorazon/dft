@@ -31,10 +31,10 @@ func (Adapter) Invoke(_ context.Context, request ports.AgentRequest) (ports.Agen
 	switch request.AgentName {
 	case "dft-wbs-builder.agent.md":
 		return marshal(domain.WBS{
-			DemandPackageID: request.RunID,
+			IncrementPackageID: request.RunID,
 			Specs: []domain.SpecRef{{
-				ID:          "001-" + slug(request.Demand),
-				Description: request.Demand,
+				ID:          "001-" + slug(request.Increment),
+				Description: request.Increment,
 				AcceptanceCriteria: []string{
 					"Spec can be executed independently by the selected lane.",
 				},
@@ -42,14 +42,14 @@ func (Adapter) Invoke(_ context.Context, request ports.AgentRequest) (ports.Agen
 		})
 	case "dft-lane-selector.agent.md":
 		return marshal([]domain.LaneAssignment{{
-			SpecID:    "001-" + slug(request.Demand),
+			SpecID:    "001-" + slug(request.Increment),
 			Lane:      "spec",
 			Rationale: "Stub bootstrap uses the full spec lane for deterministic coverage.",
 		}})
 	case "dft-eval-surface-author.agent.md":
 		designWBSPath := ".dft/runs/" + request.RunID + "/design/wbs.json"
 		return marshal(domain.EvalSurfaceContract{
-			DemandPackageID: request.RunID,
+			IncrementPackageID: request.RunID,
 			Surfaces: []domain.EvalSurface{{
 				ID:               "stub-design-artifacts",
 				Kind:             domain.EvalSurfaceFile,
@@ -66,7 +66,7 @@ func (Adapter) Invoke(_ context.Context, request ports.AgentRequest) (ports.Agen
 	case "dft-eval-plan-author.agent.md":
 		if strings.Contains(request.Prompt, "artifact-only BDD eval plan") {
 			return marshal(domain.EvalPlan{
-				DemandPackageID: request.RunID,
+				IncrementPackageID: request.RunID,
 				RequirementIDs:  []string{"REQ-STUB"},
 				Packs: []domain.BDDPack{{
 					ID:         "stub-file-pack",
@@ -96,14 +96,14 @@ func (Adapter) Invoke(_ context.Context, request ports.AgentRequest) (ports.Agen
 		}})
 	case "dft-fix-planner.agent.md":
 		return marshal(domain.WBSAmendment{
-			DemandPackageID: request.RunID,
+			IncrementPackageID: request.RunID,
 			Findings: []domain.Finding{{
 				CheckID: "stub-finding",
 				Message: "Stub fix planner mirrors the failed evaluation into a remediation spec.",
 			}},
 			RemediationSpecs: []domain.SpecRef{{
-				ID:          "fix-" + slug(request.Demand),
-				Description: "Remediate failed evaluation findings for " + summarize(request.Demand),
+				ID:          "fix-" + slug(request.Increment),
+				Description: "Remediate failed evaluation findings for " + summarize(request.Increment),
 				AcceptanceCriteria: []string{
 					"Failed evaluation findings are corrected and the eval plan passes.",
 				},
@@ -119,18 +119,20 @@ func (Adapter) Invoke(_ context.Context, request ports.AgentRequest) (ports.Agen
 		})
 	}
 
-	title := summarize(request.Demand)
-	return marshal(domain.DemandPackage{
-		ID:        request.RunID,
-		Title:     title,
-		RawDemand: request.Demand,
-		AcceptanceCriteria: []string{
-			"Generated demand package preserves the original request.",
-			"Generated demand package is specific enough for WBS decomposition.",
+	title := summarize(request.Increment)
+	return marshal(domain.IncrementPackage{
+		ID:               request.RunID,
+		Title:            title,
+		RawIncrement:     request.Increment,
+		RefinedIncrement: request.Increment,
+		AcceptanceCriteria: []domain.AcceptanceCriterion{
+			{ID: "AC-1", Description: "Generated increment package preserves the original request."},
+			{ID: "AC-2", Description: "Generated increment package is specific enough for WBS decomposition."},
 		},
 		Assumptions: []string{
 			"Stub adapter is being used for deterministic bootstrap execution.",
 		},
+		VerifiedComplete: true,
 	})
 }
 
@@ -142,10 +144,10 @@ func marshal(value any) (ports.AgentResponse, error) {
 	return ports.AgentResponse{Raw: string(output) + "\n"}, nil
 }
 
-func summarize(demand string) string {
-	words := strings.Fields(demand)
+func summarize(increment string) string {
+	words := strings.Fields(increment)
 	if len(words) == 0 {
-		return "Untitled demand"
+		return "Untitled increment"
 	}
 	if len(words) > 6 {
 		words = words[:6]
@@ -153,8 +155,8 @@ func summarize(demand string) string {
 	return strings.Join(words, " ")
 }
 
-func slug(demand string) string {
-	words := strings.Fields(strings.ToLower(demand))
+func slug(increment string) string {
+	words := strings.Fields(strings.ToLower(increment))
 	if len(words) == 0 {
 		return "untitled"
 	}

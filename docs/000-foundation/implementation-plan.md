@@ -1,5 +1,9 @@
 # Dark Factory Toolkit — Dogfood Bootstrap Implementation Plan
 
+> Historical bootstrap document. For the current execution-layer posture see
+> `docs/000-foundation/overview.md`. For upstream design-phase docs see
+> `docs/design-phase/`.
+
 > Companion to `docs/000-foundation/overview.md`. This plan turns the
 > foundation design into an incremental implementation sequence that
 > dogfoods dft as soon as the loop is testable.

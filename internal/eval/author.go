@@ -13,7 +13,7 @@ import (
 
 // AuthorInput is the source-blind context allowed for eval-plan authoring.
 type AuthorInput struct {
-	DemandPackage    domain.DemandPackage       `json:"demand_package"`
+	IncrementPackage    domain.IncrementPackage       `json:"increment_package"`
 	WBS              domain.WBS                 `json:"wbs"`
 	SurfaceContract  domain.EvalSurfaceContract `json:"surface_contract"`
 	ArtifactManifest domain.ArtifactManifest    `json:"artifact_manifest"`
@@ -36,8 +36,8 @@ func (a ArtifactOnlyPlanAuthor) Author(ctx context.Context, input AuthorInput) (
 	if a.RunID == "" {
 		return domain.EvalPlan{}, fmt.Errorf("run id is required")
 	}
-	if err := input.DemandPackage.Validate(); err != nil {
-		return domain.EvalPlan{}, fmt.Errorf("validate demand package: %w", err)
+	if err := input.IncrementPackage.Validate(); err != nil {
+		return domain.EvalPlan{}, fmt.Errorf("validate increment package: %w", err)
 	}
 	if err := input.WBS.Validate(); err != nil {
 		return domain.EvalPlan{}, fmt.Errorf("validate WBS: %w", err)
@@ -56,7 +56,7 @@ func (a ArtifactOnlyPlanAuthor) Author(ctx context.Context, input AuthorInput) (
 		AgentName: "dft-eval-plan-author.agent.md",
 		Prompt: "Author a hidden, artifact-only BDD eval plan from this source-blind context. " +
 			"Use only declared surfaces and artifacts; do not ask for or infer implementation source.\n\n" + string(promptBody),
-		Demand: input.DemandPackage.RawDemand,
+		Increment: input.IncrementPackage.RawIncrement,
 		RunID:  a.RunID,
 	})
 	if err != nil {
@@ -67,8 +67,8 @@ func (a ArtifactOnlyPlanAuthor) Author(ctx context.Context, input AuthorInput) (
 	if err := agentjson.DecodeFirst(response.Raw, &plan); err != nil {
 		return domain.EvalPlan{}, fmt.Errorf("parse eval plan author output: %w", err)
 	}
-	if plan.DemandPackageID == "" {
-		plan.DemandPackageID = input.DemandPackage.ID
+	if plan.IncrementPackageID == "" {
+		plan.IncrementPackageID = input.IncrementPackage.ID
 	}
 	defaultHidden(&plan)
 	if err := plan.Validate(); err != nil {

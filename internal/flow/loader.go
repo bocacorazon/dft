@@ -42,11 +42,12 @@ type definitionStep struct {
 	Input         definitionInput   `yaml:"input"`
 	Integration   string            `yaml:"integration"`
 	Model         string            `yaml:"model"`
+	ModelType     string            `yaml:"model_type"`
 	AgentName     string            `yaml:"agent_name"`
 	OutputMode    AgentOutputMode   `yaml:"output_mode"`
 	AllowTools    bool              `yaml:"allow_tools"`
 	Prompt        string            `yaml:"prompt"`
-	Demand        string            `yaml:"demand"`
+	Increment        string            `yaml:"increment"`
 	Cwd           string            `yaml:"cwd"`
 	Env           map[string]string `yaml:"env"`
 	Tool          []string          `yaml:"tool"`
@@ -193,11 +194,12 @@ func normalizeStep(step definitionStep) (Step, error) {
 		CommandInput:  commandInput,
 		Integration:   step.Integration,
 		Model:         step.Model,
+		ModelType:     step.ModelType,
 		AgentName:     step.AgentName,
 		OutputMode:    step.OutputMode,
 		AllowTools:    step.AllowTools,
 		Prompt:        step.Prompt,
-		Demand:        step.Demand,
+		Increment:        step.Increment,
 		Cwd:           step.Cwd,
 		Env:           step.Env,
 		Command:       step.Tool,

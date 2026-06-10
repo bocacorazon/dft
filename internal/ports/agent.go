@@ -6,10 +6,11 @@ import "context"
 type AgentRequest struct {
 	AgentName  string
 	Prompt     string
-	Demand     string
+	Increment     string
 	RunID      string
 	Cwd        string
 	Env        map[string]string
+	Model      string
 	AllowTools bool
 }
 

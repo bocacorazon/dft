@@ -7,8 +7,8 @@ import (
 )
 
 // ManifestFromSurfaceContract creates the first local artifact manifest from declared surfaces.
-func ManifestFromSurfaceContract(demandPackageID string, contract domain.EvalSurfaceContract) domain.ArtifactManifest {
-	manifest := domain.ArtifactManifest{DemandPackageID: demandPackageID}
+func ManifestFromSurfaceContract(incrementPackageID string, contract domain.EvalSurfaceContract) domain.ArtifactManifest {
+	manifest := domain.ArtifactManifest{IncrementPackageID: incrementPackageID}
 	seen := map[string]struct{}{}
 	for _, surface := range contract.Surfaces {
 		if _, ok := seen[surface.ArtifactRef]; ok {

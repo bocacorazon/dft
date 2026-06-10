@@ -30,7 +30,7 @@ const (
 	ActionHTTPExpectJSONPath      = "http.expect_json_path_equals"
 )
 
-// Executor runs artifact-bound BDD packs and optional legacy deterministic checks.
+// Executor runs artifact-bound BDD packs and optional deterministic checks.
 type Executor struct {
 	RootDir    string
 	HTTPClient *http.Client

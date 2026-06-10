@@ -21,7 +21,7 @@ type IncrementRequest struct {
 	RunID string
 }
 
-// Increment records branch metadata for one demand-package increment.
+// Increment records branch metadata for one increment-package increment.
 type Increment struct {
 	RunID         string
 	DefaultBranch string

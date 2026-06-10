@@ -8,23 +8,22 @@ import (
 	"path/filepath"
 
 	"github.com/bocacorazon/dft/internal/domain"
-	domainv2 "github.com/bocacorazon/dft/internal/domain/v2"
 )
 
 // phaseProgress detects which phases are complete for a run.
 type phaseProgress struct {
-	Intent    string // "complete", "incomplete", "-"
-	Solution  string
-	Build     string
-	Evaluate  string
+	Intent   string // "complete", "incomplete", "-"
+	Solution string
+	Build    string
+	Evaluate string
 }
 
 func detectPhaseProgress(runID string) phaseProgress {
 	runDir := filepath.Join(".dft", "runs", runID)
 	p := phaseProgress{Intent: "-", Solution: "-", Build: "-", Evaluate: "-"}
 
-	// Intent: demand-package.json exists and is verified
-	if dp, err := loadDemandPackageV2(runID); err == nil {
+	// Intent: increment-package.json exists and is verified
+	if dp, err := loadIncrementPackage(runID); err == nil {
 		if dp.VerifiedComplete {
 			p.Intent = "complete"
 		} else {
@@ -73,15 +72,15 @@ func detectPhaseProgress(runID string) phaseProgress {
 	return p
 }
 
-func loadDemandPackageV2(runID string) (domainv2.DemandPackage, error) {
-	path := filepath.Join(".dft", "runs", runID, "intent", "demand-package.json")
+func loadIncrementPackage(runID string) (domain.IncrementPackage, error) {
+	path := filepath.Join(".dft", "runs", runID, "intent", "increment-package.json")
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return domainv2.DemandPackage{}, err
+		return domain.IncrementPackage{}, err
 	}
-	var dp domainv2.DemandPackage
+	var dp domain.IncrementPackage
 	if err := json.Unmarshal(content, &dp); err != nil {
-		return domainv2.DemandPackage{}, err
+		return domain.IncrementPackage{}, err
 	}
 	return dp, nil
 }
@@ -134,8 +133,8 @@ func printInspectV2(runID string, stdout io.Writer, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "  evaluate:  %s\n", progress.Evaluate)
 
 	// Show contract artifact details
-	if dp, err := loadDemandPackageV2(runID); err == nil {
-		fmt.Fprintf(stdout, "\n--- Demand Package ---\n")
+	if dp, err := loadIncrementPackage(runID); err == nil {
+		fmt.Fprintf(stdout, "\n--- Increment Package ---\n")
 		fmt.Fprintf(stdout, "  title: %s\n", dp.Title)
 		fmt.Fprintf(stdout, "  acs: %d\n", len(dp.AcceptanceCriteria))
 		fmt.Fprintf(stdout, "  verified: %v\n", dp.VerifiedComplete)
@@ -173,9 +172,9 @@ func printInspectV2(runID string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
-// showStatusV2 decides whether to show v2 or legacy status format.
+// showStatusV2 decides between phase-based and manifest-based status format.
 func showStatusV2(stdout io.Writer, stderr io.Writer) int {
-	// If any runs have v2 phase artifacts, use v2 format
+	// If any runs have phase artifacts, use the phase format.
 	entries, err := os.ReadDir(filepath.Join(".dft", "runs"))
 	if err != nil {
 		return runStatus(stdout, stderr)
@@ -184,7 +183,7 @@ func showStatusV2(stdout io.Writer, stderr io.Writer) int {
 		if !entry.IsDir() {
 			continue
 		}
-		if _, err := loadDemandPackageV2(entry.Name()); err == nil {
+		if _, err := loadIncrementPackage(entry.Name()); err == nil {
 			return printPhaseStatus(stdout, stderr)
 		}
 		if _, err := loadSolutionDesign(entry.Name()); err == nil {

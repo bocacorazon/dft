@@ -24,8 +24,8 @@ func TestHarnessRun(t *testing.T) {
 
 	// 3. Execute Run
 	ctx := context.Background()
-	demand := "this is a mock demand"
-	result, err := h.Run(ctx, demand)
+	increment := "this is a mock increment"
+	result, err := h.Run(ctx, increment)
 	if err != nil {
 		t.Fatalf("Harness.Run failed: %v", err)
 	}
@@ -34,8 +34,8 @@ func TestHarnessRun(t *testing.T) {
 	if result.RunID == "" {
 		t.Error("Expected RunID to be generated, got empty")
 	}
-	if result.Demand != demand {
-		t.Errorf("Expected demand %q, got %q", demand, result.Demand)
+	if result.Increment != increment {
+		t.Errorf("Expected increment %q, got %q", increment, result.Increment)
 	}
 	if result.WorkspaceDir == "" {
 		t.Error("Expected WorkspaceDir, got empty")

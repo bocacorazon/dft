@@ -8,7 +8,7 @@ import (
 )
 
 // provisionRepos creates a bare remote and a cloned workspace.
-func (h *Harness) provisionRepos(runID, demand string) (remoteDir string, workspaceDir string, err error) {
+func (h *Harness) provisionRepos(runID, increment string) (remoteDir string, workspaceDir string, err error) {
 	baseTemp, err := os.MkdirTemp("", "dft-eval-"+runID+"-*")
 	if err != nil {
 		return "", "", err
@@ -34,9 +34,9 @@ func (h *Harness) provisionRepos(runID, demand string) (remoteDir string, worksp
 	runIn(workspaceDir, "git", "config", "user.name", "dft-eval")
 	runIn(workspaceDir, "git", "config", "user.email", "eval@dft.local")
 
-	// 3. Write README.md with demand
+	// 3. Write README.md with increment
 	readme := filepath.Join(workspaceDir, "README.md")
-	content := fmt.Sprintf("# Evaluation Target\n\n**Demand:**\n%s\n", demand)
+	content := fmt.Sprintf("# Evaluation Target\n\n**Increment:**\n%s\n", increment)
 	if err := os.WriteFile(readme, []byte(content), 0644); err != nil {
 		return "", "", err
 	}
@@ -48,7 +48,7 @@ func (h *Harness) provisionRepos(runID, demand string) (remoteDir string, worksp
 
 	// 5. Commit and Push
 	runIn(workspaceDir, "git", "add", ".")
-	runIn(workspaceDir, "git", "commit", "-m", "initial: provision repo and demand")
+	runIn(workspaceDir, "git", "commit", "-m", "initial: provision repo and increment")
 	if err := runIn(workspaceDir, "git", "push", "origin", "main"); err != nil {
 		return "", "", err
 	}

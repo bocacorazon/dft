@@ -102,7 +102,7 @@ func provisionAssets(command string, args []string, stdout io.Writer, stderr io.
 func defaultProvisionedAssets() []provisionedAsset {
 	dftAgents := []provisionedAsset{
 		{Path: filepath.Join(".dft", "agents", "dft-intake.agent.md"), Content: dftIntakeAgent()},
-		{Path: filepath.Join(".dft", "agents", "dft-demand-package.agent.md"), Content: dftDemandPackageAgent()},
+		{Path: filepath.Join(".dft", "agents", "dft-increment-package.agent.md"), Content: dftIncrementPackageAgent()},
 		{Path: filepath.Join(".dft", "agents", "dft-wbs-builder.agent.md"), Content: dftWBSBuilderAgent()},
 		{Path: filepath.Join(".dft", "agents", "dft-lane-selector.agent.md"), Content: dftLaneSelectorAgent()},
 		{Path: filepath.Join(".dft", "agents", "dft-eval-surface-author.agent.md"), Content: dftEvalSurfaceAuthorAgent()},
@@ -138,37 +138,12 @@ func defaultProvisionedAssets() []provisionedAsset {
 	return assets
 }
 
-func legacyDefaultProvisionedAssets() []provisionedAsset {
-	return []provisionedAsset{
-		{Path: ".gitignore", Content: managedHeader + "\n# dft transient runtime artifacts\n.dft/runs/\n.dft/worktrees/\n.dft/state.db\n.dft/inbox/*\n!.dft/inbox/.gitkeep\n"},
-		{Path: filepath.Join(".dft", "agents", "dft-intake.agent.md"), Content: managedAgent("dft Intake Agent", "Normalize raw user demand into a demand package.", "Return strict JSON for a demand package.")},
-		{Path: filepath.Join(".dft", "agents", "dft-demand-package.agent.md"), Content: managedAgent("dft Demand Package Agent", "Refine demand into bounded, testable work.", "Return strict JSON and keep scope v1-bounded.")},
-		{Path: filepath.Join(".dft", "agents", "dft-wbs-builder.agent.md"), Content: managedAgent("dft WBS Builder Agent", "Decompose a demand package into independently executable specs.", "Return strict JSON WBS with acceptance criteria.")},
-		{Path: filepath.Join(".dft", "agents", "dft-lane-selector.agent.md"), Content: managedAgent("dft Lane Selector Agent", "Assign each spec to an execution lane.", "Return strict JSON lane assignments.")},
-		{Path: filepath.Join(".dft", "agents", "dft-eval-plan-author.agent.md"), Content: managedAgent("dft Eval Plan Author Agent", "Author adversarial deterministic verification checks.", "Return strict JSON evaluation plans.")},
-		{Path: filepath.Join(".dft", "agents", "dft-fix-planner.agent.md"), Content: managedAgent("dft Fix Planner Agent", "Convert failed evaluation findings into WBS amendments.", "Return strict JSON remediation plans.")},
-		{Path: filepath.Join(".dft", "agents", "dft-code-review.agent.md"), Content: managedAgent("dft Code Review Agent", "Perform code review during the Speckit implementation loop.", "Return strict JSON review decisions with severity.")},
-		{Path: filepath.Join(".dft", "agents", "dft-review.agent.md"), Content: managedAgent("dft Review Agent", "Perform final code review before merge.", "Return strict JSON review decisions.")},
-		{Path: filepath.Join(".dft", "agents", "dft-mergeback.agent.md"), Content: managedAgent("dft Mergeback Agent", "Resolve mergeback conflicts when a spec branch is rebased or merged into its target branch.", "Resolve git conflicts when present and otherwise do nothing.")},
-		{Path: filepath.Join(".github", "copilot", "agents", "dft-intake.agent.md"), Content: managedAgent("dft Intake Agent", "Normalize raw user demand into a demand package.", "Return strict JSON for a demand package.")},
-		{Path: filepath.Join(".github", "copilot", "agents", "dft-code-review.agent.md"), Content: managedAgent("dft Code Review Agent", "Perform code review during the Speckit implementation loop.", "Return strict JSON review decisions with severity.")},
-		{Path: filepath.Join(".github", "copilot", "agents", "dft-review.agent.md"), Content: managedAgent("dft Review Agent", "Perform final code review before merge.", "Return strict JSON review decisions.")},
-		{Path: filepath.Join(".github", "copilot", "agents", "dft-mergeback.agent.md"), Content: managedAgent("dft Mergeback Agent", "Resolve mergeback conflicts when a spec branch is rebased or merged into its target branch.", "Resolve git conflicts when present and otherwise do nothing.")},
-		{Path: filepath.Join(".dft", "lanes", "spec.json"), Content: `{"name":"spec","flow":".dft/flows/spec-lane.yaml"}` + "\n"},
-		{Path: filepath.Join(".dft", "flows", "spec-lane.yaml"), Content: orchestration.SpecKitLaneFlowYAML()},
-		{Path: filepath.Join(".dft", "context", "constitution.md"), Content: managedHeader + "\n# dft context\n\nFollow repository constitution and mandatory TDD.\n"},
-		{Path: filepath.Join(".dft", "context", "project.md"), Content: managedHeader + "\n# Project context\n\nDescribe local project conventions, commands, and constraints here.\n"},
-		{Path: filepath.Join(".dft", "inbox", ".gitkeep"), Content: managedHeader + "\n"},
-		{Path: filepath.Join(".specify", "memory", "constitution.md"), Content: managedHeader + "\n# Constitution\n\nGo project with mandatory TDD and fix-all-tests policy.\n"},
-	}
-}
-
 func dftIntakeAgent() string {
-	return managedAgent("dft Intake Agent", "Normalize raw user demand into a demand package.", `Return only JSON with this shape:
+	return managedAgent("dft Intake Agent", "Normalize raw user input into an increment package.", `Return only JSON with this shape:
 {
   "id": "run-id-from-prompt-when-known",
   "title": "short title",
-  "raw_demand": "the original request",
+  "raw_increment": "the original request",
   "acceptance_criteria": ["testable outcome"],
   "assumptions": ["reasonable assumption"],
   "non_goals": ["explicitly excluded work"]
@@ -177,23 +152,23 @@ func dftIntakeAgent() string {
 Do not include markdown fences or commentary.`)
 }
 
-func dftDemandPackageAgent() string {
-	return managedAgent("dft Demand Package Agent", "Refine demand into bounded, testable work.", `Return only JSON with the demand package shape:
-{"id":"run-id","title":"short title","raw_demand":"original request","acceptance_criteria":["testable outcome"],"assumptions":[],"non_goals":[]}
+func dftIncrementPackageAgent() string {
+	return managedAgent("dft Increment Package Agent", "Refine an increment into bounded, testable work.", `Return only JSON with the increment package shape:
+{"id":"run-id","title":"short title","raw_increment":"original request","acceptance_criteria":["testable outcome"],"assumptions":[],"non_goals":[]}
 
 Keep scope small enough for one increment. Do not include markdown fences or commentary.`)
 }
 
 func dftWBSBuilderAgent() string {
-	return managedAgent("dft WBS Builder Agent", "Decompose a demand package into independently executable specs.", `Return only JSON with this shape:
+	return managedAgent("dft WBS Builder Agent", "Decompose an increment package into independently executable specs.", `Return only JSON with this shape:
 {
-  "demand_package_id": "id",
+  "increment_package_id": "id",
   "specs": [
     {"id": "001-short-name", "description": "one independently executable spec", "acceptance_criteria": ["testable criterion"]}
   ]
 }
 
-Prefer one spec for small single-artifact requests. Do not split one small CLI, API endpoint, file artifact, or documentation-only change into setup/help/test/docs specs unless the demand explicitly requires independent deliverables. Do not include markdown fences or commentary.`)
+Prefer one spec for small single-artifact requests. Do not split one small CLI, API endpoint, file artifact, or documentation-only change into setup/help/test/docs specs unless the increment explicitly requires independent deliverables. Do not include markdown fences or commentary.`)
 }
 
 func dftLaneSelectorAgent() string {
@@ -208,7 +183,7 @@ Emit exactly one assignment per spec and prefer the "spec" lane. Do not include 
 func dftEvalSurfaceAuthorAgent() string {
 	return managedAgent("dft Eval Surface Author Agent", "Declare artifact-only eval surfaces during solution design.", `Return only JSON with this shape:
 {
-  "demand_package_id": "id",
+  "increment_package_id": "id",
   "surfaces": [
     {
       "id": "cli",
@@ -226,7 +201,7 @@ func dftEvalSurfaceAuthorAgent() string {
   ]
 }
 
-Author this during solution design from the demand package and WBS only. Do not inspect source code.
+Author this during solution design from the increment package and WBS only. Do not inspect source code.
 Default environment_class to "ephemeral"; use bound_external or live only when explicitly required.
 Use kind values: cli, http_api, graphql, grpc, web_ui, file, event, database, infra, container, composite.
 Use readiness kinds: file_exists, command_exit_zero, http_status.
@@ -236,7 +211,7 @@ Do not include markdown fences or commentary.`)
 func dftEvalPlanAuthorAgent() string {
 	return managedAgent("dft Eval Plan Author Agent", "Author adversarial artifact-only BDD evaluation plans.", `Return only JSON with this shape:
 {
-  "demand_package_id": "id",
+  "increment_package_id": "id",
   "requirement_ids": ["REQ-001"],
   "packs": [
     {
@@ -269,7 +244,7 @@ Use hidden visibility unless explicitly told to publish. Do not include markdown
 func dftFixPlannerAgent() string {
 	return managedAgent("dft Fix Planner Agent", "Convert failed evaluation findings into WBS amendments.", `Return only JSON with this shape:
 {
-  "demand_package_id": "id",
+  "increment_package_id": "id",
   "findings": [{"check_id":"failed-check","message":"what failed"}],
   "remediation_specs": [
     {"id":"fix-short-name","description":"remediation spec","acceptance_criteria":["testable criterion"]}

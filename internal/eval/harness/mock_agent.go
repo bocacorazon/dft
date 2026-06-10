@@ -13,34 +13,34 @@ func (m *MockAgent) Name() string {
 	return "MockAgent"
 }
 
-func (m *MockAgent) Design(ctx context.Context, demand string, workspaceDir string, designDir string) error {
+func (m *MockAgent) Design(ctx context.Context, increment string, workspaceDir string, designDir string) error {
 	if err := os.MkdirAll(designDir, 0755); err != nil {
 		return err
 	}
 
-	// Build minimal but structurally valid demand-package.json + solution-design.json
+	// Build minimal but structurally valid increment-package.json + solution-design.json
 	// so the engine can proceed past validation. Uses stub lane.
 	// designDir is like ".dft/runs/<run-id>/design", so run ID is the parent dir name.
 	runID := filepath.Base(filepath.Dir(designDir))
 
-	demandPkg := fmt.Sprintf(`{
+	incrementPkg := fmt.Sprintf(`{
   "id": "%s",
-  "title": "stub demand",
-  "raw_demand": %q,
-  "refined_demand": "mock refined demand",
+  "title": "stub increment",
+  "raw_increment": %q,
+  "refined_increment": "mock refined increment",
   "acceptance_criteria": [
     {"id": "stub-ac-1", "description": "stub acceptance criterion"}
   ],
   "assumptions": ["mock assumption"],
   "non_goals": [],
   "verified_complete": true
-}`, runID, demand)
+}`, runID, increment)
 
 	solution := fmt.Sprintf(`{
   "id": "%s",
-  "demand_package_id": "%s",
+  "increment_package_id": "%s",
   "test_plan": {
-    "demand_package_id": "%s",
+    "increment_package_id": "%s",
     "requirement_ids": ["stub-req"],
     "scenarios": [
       {
@@ -55,7 +55,7 @@ func (m *MockAgent) Design(ctx context.Context, demand string, workspaceDir stri
     ]
   },
   "wbs": {
-    "demand_package_id": "%s",
+    "increment_package_id": "%s",
     "specs": [
       {
         "id": "stub-spec",
@@ -73,7 +73,7 @@ func (m *MockAgent) Design(ctx context.Context, demand string, workspaceDir stri
     }
   ],
   "eval_surface_contract": {
-    "demand_package_id": "%s",
+    "increment_package_id": "%s",
     "surfaces": [
       {
         "id": "stub-surface",
@@ -86,6 +86,6 @@ func (m *MockAgent) Design(ctx context.Context, demand string, workspaceDir stri
   }
 }`, runID, runID, runID, runID, runID)
 
-	os.WriteFile(filepath.Join(designDir, "demand-package.json"), []byte(demandPkg), 0644)
+	os.WriteFile(filepath.Join(designDir, "increment-package.json"), []byte(incrementPkg), 0644)
 	return os.WriteFile(filepath.Join(designDir, "solution-design.json"), []byte(solution), 0644)
 }

@@ -4,7 +4,7 @@ import "testing"
 
 func TestEvalSurfaceContractValidateRequiresDeclaredSurface(t *testing.T) {
 	contract := EvalSurfaceContract{
-		DemandPackageID: "demand-1",
+		IncrementPackageID: "increment-1",
 		Surfaces: []EvalSurface{{
 			ID:               "cli",
 			Kind:             EvalSurfaceCLI,
@@ -25,7 +25,7 @@ func TestEvalSurfaceContractValidateRequiresDeclaredSurface(t *testing.T) {
 }
 
 func TestEvalPlanValidateRequiresExecutableContent(t *testing.T) {
-	plan := EvalPlan{DemandPackageID: "demand-1"}
+	plan := EvalPlan{IncrementPackageID: "increment-1"}
 
 	if err := plan.Validate(); err == nil {
 		t.Fatalf("Validate returned nil, want error")
@@ -34,7 +34,7 @@ func TestEvalPlanValidateRequiresExecutableContent(t *testing.T) {
 
 func TestEvalPlanValidateAcceptsBDDAndChecks(t *testing.T) {
 	plan := EvalPlan{
-		DemandPackageID: "demand-1",
+		IncrementPackageID: "increment-1",
 		RequirementIDs:  []string{"REQ-001"},
 		Packs: []BDDPack{{
 			ID:        "cli-pack",

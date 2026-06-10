@@ -54,17 +54,15 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 	args := []string{
 		"chat", "-q", request.Prompt,
 	}
+	if request.Model != "" {
+		args = append(args, "-m", request.Model)
+	}
 
 	if request.AllowTools {
 		args = append(args, "--yolo")
 	}
 
 	// Prepend skills if agentName is given, mapping agent name to skill name.
-	if request.AgentName != "" {
-		// Assuming we convert agentName like "speckit.plan" -> "dft-plan" or similar
-		// The requirement of skills depends on implementation.
-		// For now, let's inject a system tag or context if necessary.
-	}
 
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = absCmdDir
@@ -76,9 +74,6 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-
-	// Record Transcript mapping.
-	// ... (Implementation of transcript logging if required by your org)
 
 	err = cmd.Run()
 	if err != nil {

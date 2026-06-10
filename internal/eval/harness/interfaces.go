@@ -5,16 +5,16 @@ import (
 	"time"
 )
 
-// Agent produces a solution-design.json from raw demand text.
+// Agent produces a solution-design.json from raw increment text.
 type Agent interface {
-	Design(ctx context.Context, demand string, workspaceDir string, designDir string) error
+	Design(ctx context.Context, increment string, workspaceDir string, designDir string) error
 	Name() string
 }
 
 // RunResult captures the complete output of one pipeline execution.
 type RunResult struct {
 	RunID        string
-	Demand       string
+	Increment       string
 	DesignDir    string
 	DesignError  string
 	BuildOK      bool
@@ -31,7 +31,7 @@ type Harness struct {
 	DftPath     string
 	Agent       Agent
 	Adapter     string // e.g. "copilot"
-	lastDemand string // saved from Run() for use in retry loop
+	lastIncrement string // saved from Run() for use in retry loop
 }
 
 func New(dftPath string, agent Agent, adapter string) *Harness {

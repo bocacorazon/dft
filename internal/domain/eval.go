@@ -82,7 +82,7 @@ type ReadinessProbe struct {
 
 // EvalSurfaceContract is authored with the WBS during solution design.
 type EvalSurfaceContract struct {
-	DemandPackageID string        `json:"demand_package_id"`
+	IncrementPackageID string        `json:"increment_package_id"`
 	Surfaces        []EvalSurface `json:"surfaces"`
 }
 
@@ -96,7 +96,7 @@ type ArtifactRef struct {
 
 // ArtifactManifest lists artifacts collected after WBS completion.
 type ArtifactManifest struct {
-	DemandPackageID string        `json:"demand_package_id"`
+	IncrementPackageID string        `json:"increment_package_id"`
 	Artifacts       []ArtifactRef `json:"artifacts"`
 }
 
@@ -150,7 +150,7 @@ type BDDPack struct {
 
 // EvalPlan is the artifact-only BDD plan consumed by the eval executor.
 type EvalPlan struct {
-	DemandPackageID string    `json:"demand_package_id"`
+	IncrementPackageID string    `json:"increment_package_id"`
 	RequirementIDs  []string  `json:"requirement_ids,omitempty"`
 	Packs           []BDDPack `json:"packs,omitempty"`
 	Checks          []Check   `json:"checks,omitempty"`
@@ -201,8 +201,8 @@ type EvalResult struct {
 
 // Validate returns an error when the surface contract cannot guide eval.
 func (c EvalSurfaceContract) Validate() error {
-	if c.DemandPackageID == "" {
-		return fmt.Errorf("demand package id is required")
+	if c.IncrementPackageID == "" {
+		return fmt.Errorf("increment package id is required")
 	}
 	if len(c.Surfaces) == 0 {
 		return fmt.Errorf("at least one eval surface is required")
@@ -242,8 +242,8 @@ func (c EvalSurfaceContract) Validate() error {
 
 // Validate returns an error when the manifest cannot bind surfaces.
 func (m ArtifactManifest) Validate() error {
-	if m.DemandPackageID == "" {
-		return fmt.Errorf("demand package id is required")
+	if m.IncrementPackageID == "" {
+		return fmt.Errorf("increment package id is required")
 	}
 	if len(m.Artifacts) == 0 {
 		return fmt.Errorf("at least one artifact is required")
@@ -269,8 +269,8 @@ func (m ArtifactManifest) Validate() error {
 
 // Validate returns an error when the eval plan is not executable.
 func (p EvalPlan) Validate() error {
-	if p.DemandPackageID == "" {
-		return fmt.Errorf("demand package id is required")
+	if p.IncrementPackageID == "" {
+		return fmt.Errorf("increment package id is required")
 	}
 	if len(p.Packs) == 0 && len(p.Checks) == 0 {
 		return fmt.Errorf("at least one BDD pack or deterministic check is required")

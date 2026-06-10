@@ -8,29 +8,29 @@ import (
 	"time"
 )
 
-func (h *Harness) Run(ctx context.Context, demand string) (*RunResult, error) {
+func (h *Harness) Run(ctx context.Context, increment string) (*RunResult, error) {
 	start := time.Now()
 	runID := time.Now().Format("run-20060102-150405")
 
 	// Phase 1: Provision Bare Remote & Clone
-	remoteDir, workspaceDir, err := h.provisionRepos(runID, demand)
+	remoteDir, workspaceDir, err := h.provisionRepos(runID, increment)
 	if err != nil {
 		return nil, err
 	}
 
 	result := &RunResult{
 		RunID:        runID,
-		Demand:       demand,
+		Increment:       increment,
 		WorkspaceDir: workspaceDir,
 		RemoteDir:    remoteDir,
 	}
 
-	// Save demand for retry loops
-	h.lastDemand = demand
+	// Save increment for retry loops
+	h.lastIncrement = increment
 
 	// Phase 2: Design
 	result.DesignDir = filepath.Join(workspaceDir, ".dft", "runs", runID, "design")
-	if err := h.Agent.Design(ctx, demand, workspaceDir, result.DesignDir); err != nil {
+	if err := h.Agent.Design(ctx, increment, workspaceDir, result.DesignDir); err != nil {
 		result.DesignError = err.Error()
 		result.TotalTime = time.Since(start)
 		return result, nil

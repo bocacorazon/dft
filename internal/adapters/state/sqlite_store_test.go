@@ -18,7 +18,7 @@ func TestSQLiteStorePersistsRunsQueueAndSteps(t *testing.T) {
 		ID:        "run-123",
 		Status:    domain.RunRunning,
 		Adapter:   "stub",
-		RawDemand: "Build durable state",
+		RawIncrement: "Build durable state",
 	}
 	if err := store.Save(run); err != nil {
 		t.Fatalf("Save returned error: %v", err)

@@ -15,7 +15,7 @@ import (
 func TestArtifactOnlyPlanAuthorWritesHiddenEvalPlan(t *testing.T) {
 	root := t.TempDir()
 	agent := captureAgent{plan: domain.EvalPlan{
-		DemandPackageID: "demand-1",
+		IncrementPackageID: "increment-1",
 		RequirementIDs:  []string{"REQ-001"},
 		Packs: []domain.BDDPack{{
 			ID:        "cli-pack",
@@ -64,16 +64,18 @@ func (a *captureAgent) Invoke(_ context.Context, request ports.AgentRequest) (po
 
 func authorInput() AuthorInput {
 	return AuthorInput{
-		DemandPackage: domain.DemandPackage{
-			ID:        "demand-1",
-			Title:     "Evaluate CLI",
-			RawDemand: "Build a CLI",
-			AcceptanceCriteria: []string{
-				"CLI prints version",
+		IncrementPackage: domain.IncrementPackage{
+			ID:               "increment-1",
+			Title:            "Evaluate CLI",
+			RawIncrement:     "Build a CLI",
+			RefinedIncrement: "Build a CLI that prints its version",
+			AcceptanceCriteria: []domain.AcceptanceCriterion{
+				{ID: "AC-1", Description: "CLI prints version"},
 			},
+			VerifiedComplete: true,
 		},
 		WBS: domain.WBS{
-			DemandPackageID: "demand-1",
+			IncrementPackageID: "increment-1",
 			Specs: []domain.SpecRef{{
 				ID:                 "001-cli",
 				Description:        "Build CLI",
@@ -82,7 +84,7 @@ func authorInput() AuthorInput {
 		},
 		SurfaceContract: evalSurfaceContract(),
 		ArtifactManifest: domain.ArtifactManifest{
-			DemandPackageID: "demand-1",
+			IncrementPackageID: "increment-1",
 			Artifacts: []domain.ArtifactRef{{
 				ID:   "cli-bin",
 				Kind: domain.ArtifactBinary,

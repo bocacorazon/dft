@@ -13,7 +13,7 @@ import (
 )
 
 func runEvalHarness(args []string, stdout io.Writer, stderr io.Writer) int {
-	var demand string
+	var increment string
 	var agentType string = "mock"
 	var agentModel string
 	var agentProfile string
@@ -21,13 +21,13 @@ func runEvalHarness(args []string, stdout io.Writer, stderr io.Writer) int {
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--demand":
+		case "--increment":
 			if i+1 >= len(args) {
-				fmt.Fprintln(stderr, "--demand requires a value")
+				fmt.Fprintln(stderr, "--increment requires a value")
 				return 2
 			}
 			i++
-			demand = args[i]
+			increment = args[i]
 		case "--agent":
 			if i+1 >= len(args) {
 				fmt.Fprintln(stderr, "--agent requires a value (hermes or mock)")
@@ -61,15 +61,15 @@ func runEvalHarness(args []string, stdout io.Writer, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "unknown flag %q\n", args[i])
 				return 2
 			}
-			// If not a flag, treat as demand text if not already set via --demand
-			if demand == "" {
-				demand = args[i]
+			// If not a flag, treat as increment text if not already set via --increment
+			if increment == "" {
+				increment = args[i]
 			}
 		}
 	}
 
-	if demand == "" {
-		fmt.Fprintln(stderr, "eval-harness requires a demand text (via --demand or positional arguments)")
+	if increment == "" {
+		fmt.Fprintln(stderr, "eval-harness requires increment text (via --increment or positional arguments)")
 		return 2
 	}
 
@@ -99,12 +99,12 @@ func runEvalHarness(args []string, stdout io.Writer, stderr io.Writer) int {
 	if agentModel != "" {
 		fmt.Fprintf(stdout, "  Model:   %s\n", agentModel)
 	}
-	fmt.Fprintf(stdout, "  Demand:  %s\n", demand)
+	fmt.Fprintf(stdout, "  Increment:  %s\n", increment)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 	defer cancel()
 
-	result, err := h.Run(ctx, demand)
+	result, err := h.Run(ctx, increment)
 	if err != nil {
 		fmt.Fprintf(stderr, "harness execution failed: %v\n", err)
 		return 1

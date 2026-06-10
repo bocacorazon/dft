@@ -43,7 +43,7 @@ func (s *SQLiteStore) migrate() error {
 			id TEXT PRIMARY KEY,
 			status TEXT NOT NULL,
 			adapter TEXT NOT NULL,
-			raw_demand TEXT NOT NULL
+			raw_increment TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS jobs (
 			id TEXT NOT NULL UNIQUE,
@@ -122,9 +122,9 @@ func (s *SQLiteStore) Save(manifest domain.RunManifest) error {
 		return fmt.Errorf("run id is required")
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO runs (id, status, adapter, raw_demand) VALUES (?, ?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET status=excluded.status, adapter=excluded.adapter, raw_demand=excluded.raw_demand`,
-		manifest.ID, manifest.Status, manifest.Adapter, manifest.RawDemand,
+		`INSERT INTO runs (id, status, adapter, raw_increment) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET status=excluded.status, adapter=excluded.adapter, raw_increment=excluded.raw_increment`,
+		manifest.ID, manifest.Status, manifest.Adapter, manifest.RawIncrement,
 	)
 	if err != nil {
 		return fmt.Errorf("save run: %w", err)
@@ -135,8 +135,8 @@ func (s *SQLiteStore) Save(manifest domain.RunManifest) error {
 // Load reads a run manifest.
 func (s *SQLiteStore) Load(id string) (domain.RunManifest, error) {
 	var manifest domain.RunManifest
-	err := s.db.QueryRow(`SELECT id, status, adapter, raw_demand FROM runs WHERE id = ?`, id).
-		Scan(&manifest.ID, &manifest.Status, &manifest.Adapter, &manifest.RawDemand)
+	err := s.db.QueryRow(`SELECT id, status, adapter, raw_increment FROM runs WHERE id = ?`, id).
+		Scan(&manifest.ID, &manifest.Status, &manifest.Adapter, &manifest.RawIncrement)
 	if err != nil {
 		return domain.RunManifest{}, fmt.Errorf("load run: %w", err)
 	}
@@ -145,7 +145,7 @@ func (s *SQLiteStore) Load(id string) (domain.RunManifest, error) {
 
 // List returns all runs in insertion order by id for stable CLI output.
 func (s *SQLiteStore) List() ([]domain.RunManifest, error) {
-	rows, err := s.db.Query(`SELECT id, status, adapter, raw_demand FROM runs ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, status, adapter, raw_increment FROM runs ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list runs: %w", err)
 	}
@@ -154,7 +154,7 @@ func (s *SQLiteStore) List() ([]domain.RunManifest, error) {
 	var manifests []domain.RunManifest
 	for rows.Next() {
 		var manifest domain.RunManifest
-		if err := rows.Scan(&manifest.ID, &manifest.Status, &manifest.Adapter, &manifest.RawDemand); err != nil {
+		if err := rows.Scan(&manifest.ID, &manifest.Status, &manifest.Adapter, &manifest.RawIncrement); err != nil {
 			return nil, fmt.Errorf("scan run: %w", err)
 		}
 		manifests = append(manifests, manifest)

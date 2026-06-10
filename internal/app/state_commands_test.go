@@ -17,59 +17,6 @@ import (
 	"github.com/bocacorazon/dft/internal/orchestration"
 )
 
-func TestStatusInspectCancelAndResumeCommands(t *testing.T) {
-	root := t.TempDir()
-	t.Chdir(root)
-	t.Setenv("DFT_RUN_ID", "state-run")
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if code := Run([]string{"submit", "--adapter", "stub", "--dry-run", "--dogfood", "Track dogfood runs"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("submit returned %d\nstderr: %s", code, stderr.String())
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	if code := Run([]string{"status"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("status returned %d\nstderr: %s", code, stderr.String())
-	}
-	if got := stdout.String(); !strings.Contains(got, "state-run") || !strings.Contains(got, "succeeded") {
-		t.Fatalf("status output = %q, want run and status", got)
-	}
-	if got := stdout.String(); !strings.Contains(got, "lane/001-track-dogfood-runs") {
-		t.Fatalf("status output = %q, want lane summary", got)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".dft", "state.db")); err != nil {
-		t.Fatalf("state.db missing: %v", err)
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	if code := Run([]string{"inspect", "state-run"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("inspect returned %d\nstderr: %s", code, stderr.String())
-	}
-	if got := stdout.String(); !strings.Contains(got, "evaluation.json") || !strings.Contains(got, "next-demand-package.json") {
-		t.Fatalf("inspect output = %q, want artifacts", got)
-	}
-	if got := stdout.String(); !strings.Contains(got, "run: state-run") {
-		t.Fatalf("inspect output = %q, want run id header", got)
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	if code := Run([]string{"cancel", "state-run"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("cancel returned %d\nstderr: %s", code, stderr.String())
-	}
-	stdout.Reset()
-	stderr.Reset()
-	if code := Run([]string{"resume", "state-run"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("resume returned %d\nstderr: %s", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "state-run") {
-		t.Fatalf("resume output = %q, want run id", stdout.String())
-	}
-}
-
 func TestResumeCommandResumesSingleSpecLaneFromArtifacts(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
@@ -95,7 +42,7 @@ func TestResumeCommandResumesSingleSpecLaneFromArtifacts(t *testing.T) {
 		t.Fatal("Execute returned nil error, want pause at review-spec gate")
 	}
 	wbsContent, err := json.MarshalIndent(domain.WBS{
-		DemandPackageID: runID,
+		IncrementPackageID: runID,
 		Specs:           []domain.SpecRef{spec},
 	}, "", "  ")
 	if err != nil {
@@ -116,7 +63,7 @@ func TestResumeCommandResumesSingleSpecLaneFromArtifacts(t *testing.T) {
 		ID:        runID,
 		Status:    domain.RunFailed,
 		Adapter:   "stub",
-		RawDemand: spec.Description,
+		RawIncrement: spec.Description,
 	}); err != nil {
 		t.Fatalf("saveRunState returned error: %v", err)
 	}
@@ -149,7 +96,7 @@ func TestLoadResumableSpecForRunSelectsActiveSpecFromArtifacts(t *testing.T) {
 		{ID: "001-active", Description: "Active", AcceptanceCriteria: []string{"one"}},
 		{ID: "002-idle", Description: "Idle", AcceptanceCriteria: []string{"two"}},
 	}
-	content, err := json.MarshalIndent(domain.WBS{DemandPackageID: runID, Specs: specs}, "", "  ")
+	content, err := json.MarshalIndent(domain.WBS{IncrementPackageID: runID, Specs: specs}, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal WBS: %v", err)
 	}

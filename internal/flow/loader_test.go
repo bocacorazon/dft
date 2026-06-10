@@ -18,7 +18,7 @@ steps:
     type: agent
     agent_name: dft-code-review.agent.md
     prompt: Review
-    demand: x
+    increment: x
     max_iterations: 2
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
