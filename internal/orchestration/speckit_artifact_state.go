@@ -88,6 +88,13 @@ func assessSpecKitLaneState(artifactRoot string, runID string, spec domain.SpecR
 	if err != nil {
 		return specKitArtifactState{}, err
 	}
+	if tasksReady {
+		hasTasks, err := fileHasTaskCheckbox(workspace.TasksFile)
+		if err != nil {
+			return specKitArtifactState{}, err
+		}
+		tasksReady = hasTasks
+	}
 	if !tasksReady {
 		state.BlockingStage = SpecKitStageTasks
 		state.ResumeStepID = "tasks"
@@ -276,9 +283,19 @@ func concreteMarkdownFile(path string, templatePath string) (bool, error) {
 			if same {
 				return false, nil
 			}
+			normalizedSame, err := normalizedMarkdownEqualsFile(string(content), templatePath)
+			if err != nil {
+				return false, err
+			}
+			if normalizedSame {
+				return false, nil
+			}
 		}
 	}
 	if looksTemplated(trimmed) {
+		return false, nil
+	}
+	if !substantiveMarkdownBody(string(content)) {
 		return false, nil
 	}
 	return true, nil
@@ -289,18 +306,117 @@ func looksTemplated(content string) bool {
 	for _, marker := range []string{
 		"{{",
 		"}}",
-		"[NEEDS CLARIFICATION]",
+		"[NEEDS CLARIFICATION",
+		"[NEEDS INPUT",
 		"ACTION REQUIRED",
 		"TODO",
 		"TBD",
 		"[PLACEHOLDER",
 		"<PLACEHOLDER",
+		"[REPLACE",
+		"<REPLACE",
 	} {
 		if strings.Contains(upper, marker) {
 			return true
 		}
 	}
 	return false
+}
+
+// minSubstantiveBodyChars is the minimum count of non-heading body characters a
+// markdown artifact must contain to be treated as concrete (rather than a bare
+// heading or empty scaffolding).
+const minSubstantiveBodyChars = 12
+
+// substantiveMarkdownBody reports whether the markdown has real prose or list
+// content beyond headings, so a bare-title file no longer passes as concrete.
+func substantiveMarkdownBody(content string) bool {
+	return markdownBodyChars(content) >= minSubstantiveBodyChars
+}
+
+func markdownBodyChars(content string) int {
+	total := 0
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		total += len(strings.TrimSpace(stripListMarker(trimmed)))
+	}
+	return total
+}
+
+// stripListMarker removes a leading bullet, checkbox, or ordered-list marker so
+// only the meaningful text of a list item is measured.
+func stripListMarker(line string) string {
+	for _, bullet := range []string{"- ", "* ", "+ "} {
+		if strings.HasPrefix(line, bullet) {
+			rest := strings.TrimSpace(line[len(bullet):])
+			if strings.HasPrefix(rest, "[") {
+				if idx := strings.Index(rest, "]"); idx >= 1 && idx <= 2 {
+					rest = strings.TrimSpace(rest[idx+1:])
+				}
+			}
+			return rest
+		}
+	}
+	if idx := strings.IndexByte(line, '.'); idx > 0 && idx <= 3 && isAllDigits(line[:idx]) {
+		return strings.TrimSpace(line[idx+1:])
+	}
+	return line
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// normalizedMarkdownEqualsFile compares two markdown documents ignoring blank
+// lines and surrounding whitespace, catching template copies tweaked only by
+// whitespace that a byte checksum would miss.
+func normalizedMarkdownEqualsFile(content string, templatePath string) (bool, error) {
+	templateContent, err := os.ReadFile(templatePath)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", filepath.ToSlash(templatePath), err)
+	}
+	return normalizeMarkdown(content) == normalizeMarkdown(string(templateContent)), nil
+}
+
+func normalizeMarkdown(content string) string {
+	var lines []string
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lines = append(lines, trimmed)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// fileHasTaskCheckbox reports whether a tasks artifact contains at least one
+// checkbox task item, so a tasks.md with only headings is not treated as ready.
+func fileHasTaskCheckbox(path string) (bool, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", filepath.ToSlash(path), err)
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		trimmed := strings.TrimSpace(line)
+		for _, prefix := range []string{"- [", "* [", "+ ["} {
+			if strings.HasPrefix(trimmed, prefix) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 func hasAnySpecKitArtifacts(workspace specKitWorkspace, worktree SpecWorktree) bool {

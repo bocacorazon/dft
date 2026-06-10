@@ -394,6 +394,38 @@ binaries rebuilt; `dft stats` verified end-to-end.
 3. Add narrowly-scoped git checks for mergeback postconditions if not yet expressible.
 4. Tests for the known false-pass cases.
 
+### W5 status — COMPLETE
+
+- **Stronger artifact concreteness** (`internal/orchestration/speckit_artifact_state.go`).
+  `concreteMarkdownFile` now rejects three previously-passing false positives in addition to
+  the existing empty/checksum/templated-marker checks:
+  - **Bare-heading / no substantive body** — `substantiveMarkdownBody` measures non-heading
+    body characters (stripping bullet/checkbox/ordered-list markers) and requires at least
+    `minSubstantiveBodyChars`, so a file that is just `# Spec` no longer counts as ready.
+  - **Whitespace-tweaked template copies** — `normalizedMarkdownEqualsFile` compares the
+    artifact to its template after trimming blank lines and per-line whitespace, catching
+    template clones that a byte checksum misses.
+  - `looksTemplated` gained a few additional scaffolding markers (`[NEEDS INPUT`,
+    `[REPLACE`/`<REPLACE`) and broadened `[NEEDS CLARIFICATION`.
+- **Tasks structural check.** `assessSpecKitLaneState` additionally requires tasks.md to
+  contain at least one checkbox item (`fileHasTaskCheckbox`), so a tasks file with only prose
+  or headings blocks at the `tasks` stage instead of passing.
+- **Checksum/integrity (item 2).** The byte-level `file_checksum_differs` verify check is
+  already wired into the lane; W5 adds the normalized template comparison above for the
+  resume/state assessment path.
+- **Mergeback git postconditions (item 3) — already expressible, no new check kind.** The
+  `verify-mergeback` lane step already asserts `git_no_unmerged_files` plus `json_path_equals`
+  on the finalize step's parsed output (trees-equal, local/remote branch deleted), and
+  arbitrary git invariants are reachable via `command_exit_zero`. No gap remained, so adding a
+  bespoke check kind would have been redundant.
+- **Stub kept functional.** The deterministic stub adapter now writes substantive spec/plan/
+  research/tasks bodies so the stub spec-kit lane still completes under the stricter checks.
+
+Tests (`speckit_artifact_state_test.go`): bare-heading rejection, whitespace-tweaked template
+rejection, substantive-content acceptance, `fileHasTaskCheckbox`, and two
+`DecideSpecKitLaneResume` integration cases (bare-heading spec blocks at specify; tasks
+without a checkbox blocks at tasks). Full suite, vet, gofmt all clean; both binaries rebuilt.
+
 ---
 
 ## Dependencies & sequencing

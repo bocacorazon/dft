@@ -185,10 +185,10 @@ func writeSpecKitArtifacts(request ports.CommandRequest) error {
 		if err := os.MkdirAll(filepath.Join(request.Cwd, ".specify"), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(featureDir, "spec.md"), []byte("# Spec\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(featureDir, "spec.md"), []byte("# Spec\n\nDeterministic stub spec describing the requested increment behavior.\n"), 0o644); err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(featureDir, "checklists", "requirements.md"), []byte("# Requirements\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(featureDir, "checklists", "requirements.md"), []byte("# Requirements\n\n- Stub requirement captured for deterministic bootstrap.\n"), 0o644); err != nil {
 			return err
 		}
 		content, err := json.MarshalIndent(map[string]string{
@@ -202,15 +202,15 @@ func writeSpecKitArtifacts(request ports.CommandRequest) error {
 		if err := os.MkdirAll(filepath.Join(featureDir, "contracts"), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(featureDir, "plan.md"), []byte("# Plan\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(featureDir, "plan.md"), []byte("# Plan\n\nImplement the increment in small, verifiable steps.\n"), 0o644); err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(featureDir, "research.md"), []byte("# Research\n"), 0o644)
+		return os.WriteFile(filepath.Join(featureDir, "research.md"), []byte("# Research\n\n- Decision: deterministic stub bootstrap uses concrete artifacts.\n"), 0o644)
 	case "speckit.tasks":
 		if err := os.MkdirAll(featureDir, 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(featureDir, "tasks.md"), []byte("- [ ] Implement feature\n"), 0o644)
+		return os.WriteFile(filepath.Join(featureDir, "tasks.md"), []byte("# Tasks\n\n- [ ] Implement feature increment\n"), 0o644)
 	case "speckit.implement":
 		tasksPath := filepath.Join(featureDir, "tasks.md")
 		content, err := os.ReadFile(tasksPath)
