@@ -399,14 +399,6 @@ func printDurableRunDetails(runID string, stdout io.Writer, stderr io.Writer) in
 		return 0
 	}
 	defer sqlStore.Close()
-	steps, err := sqlStore.ListSteps(runID)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	for _, step := range steps {
-		fmt.Fprintf(stdout, "state/steps/%s\t%s\t%s\n", step.StepID, step.Status, step.Commit)
-	}
 	entries, err := sqlStore.ListInboxEntries(runID)
 	if err != nil {
 		fmt.Fprintln(stderr, err)

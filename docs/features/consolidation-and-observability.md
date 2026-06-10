@@ -307,6 +307,40 @@ the struct-tag misalignment left by the W1 `Demand`→`Increment` rename across 
 4. Tests: interrupted single-build and DAG-submit both resume from the artifact-derived
    stage.
 
+### W3 status — COMPLETE
+
+Investigation found the original W3 premise was already partly satisfied by W1: the legacy
+"build resume trusts `orchestration-result.json` status" path was deleted, `runBuild`/`runSubmit`
+mint fresh timestamped run IDs (no cross-invocation resume), and `orchestration-result.json`
+is already audit-only (read by status + eval, not resume). The remaining gap was the
+lane executor itself. Final scope landed as:
+
+- **A — executor resumes on artifact truth.** `WorktreeExecutor.Execute`
+  (`internal/execution/worktree_executor.go`) now delegates to
+  `orchestration.ResumeSpecKitLane` instead of `LoadSpecKitLane` + `runner.Execute` from
+  step 0. It attaches the lane journal observer, computes `DecideSpecKitLaneResume`, returns
+  immediately when the lane is already complete, and otherwise resumes from the first
+  incomplete stage. `provisionWorktree` is now idempotent — it reuses an existing worktree
+  dir on resume instead of calling `BeginSpec` (which fails when the path already exists).
+  With this, **every** spec-lane path (`WorktreeExecutor.Execute`, `WorktreeExecutor.Status`,
+  and `dft resume`) flows through `DecideSpecKitLaneResume` as the single completeness source.
+
+- **B — `dft resume` already unified.** `runResume` already calls `ResumeSpecKitLane`
+  directly, so no change was needed; it shares the same artifact-truth core as A.
+
+- **C — dropped the dead SQLite `steps` table.** Removed the `steps` table from `migrate()`,
+  `SaveStep`/`ListSteps`/`ReconcileCommittedSteps` (`sqlite_store.go`),
+  `domain.DurableStepStatus`/`StepRecord`/`CommitStep` (`state.go`), the `ListSteps` loop in
+  `printDurableRunDetails` (`cli.go`), the now-dead `LoadSpecKitLaneJournal` reader
+  (`speckit_resume.go`), and the corresponding tests. `dft inspect` keeps its inbox +
+  lane-summary output (both derived from live sources).
+
+Verification: added
+`TestWorktreeExecutorResumeSkipsCompletedLaneWithoutAgent` (asserts a completed lane returns
+`completed` without invoking the agent); `go build ./...`, `go test ./...`, `go vet ./...`
+all green; `gofmt -l internal/ cmd/` clean; both binaries rebuilt; `dft schema` exposes only
+`increment-package`.
+
 ## W4 — Agent observability
 
 1. Extend the port: `AgentResponse{ Raw string; Usage AgentUsage }`,

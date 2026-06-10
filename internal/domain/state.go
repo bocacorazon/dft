@@ -17,29 +17,6 @@ type JobRecord struct {
 	Status JobStatus `json:"status"`
 }
 
-// DurableStepStatus is the persisted lifecycle state for one local-mutating step.
-type DurableStepStatus string
-
-const (
-	StepPending    DurableStepStatus = "pending"
-	StepCommitting DurableStepStatus = "committing"
-	StepCommitted  DurableStepStatus = "committed"
-)
-
-// StepRecord stores crash-recovery metadata for a completed or in-flight step.
-type StepRecord struct {
-	RunID  string            `json:"run_id"`
-	StepID string            `json:"step_id"`
-	Status DurableStepStatus `json:"status"`
-	Commit string            `json:"commit,omitempty"`
-}
-
-// CommitStep is discovered from git history during crash reconciliation.
-type CommitStep struct {
-	StepID string
-	Commit string
-}
-
 // InboxEntry is a durable human-facing escalation or manual gate.
 type InboxEntry struct {
 	ID      string `json:"id"`

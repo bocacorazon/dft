@@ -51,13 +51,6 @@ func (s *SQLiteStore) migrate() error {
 			status TEXT NOT NULL,
 			created_order INTEGER PRIMARY KEY AUTOINCREMENT
 		)`,
-		`CREATE TABLE IF NOT EXISTS steps (
-			run_id TEXT NOT NULL,
-			step_id TEXT NOT NULL,
-			status TEXT NOT NULL,
-			commit_sha TEXT,
-			PRIMARY KEY (run_id, step_id)
-		)`,
 		`CREATE TABLE IF NOT EXISTS inbox_entries (
 			id TEXT PRIMARY KEY,
 			run_id TEXT NOT NULL,
@@ -202,59 +195,4 @@ func (s *SQLiteStore) NextQueued() (domain.JobRecord, error) {
 		return domain.JobRecord{}, fmt.Errorf("next queued job: %w", err)
 	}
 	return job, nil
-}
-
-// SaveStep persists crash-recovery metadata for a step.
-func (s *SQLiteStore) SaveStep(step domain.StepRecord) error {
-	if step.RunID == "" || step.StepID == "" {
-		return fmt.Errorf("run id and step id are required")
-	}
-	_, err := s.db.Exec(
-		`INSERT INTO steps (run_id, step_id, status, commit_sha) VALUES (?, ?, ?, ?)
-		 ON CONFLICT(run_id, step_id) DO UPDATE SET status=excluded.status, commit_sha=excluded.commit_sha`,
-		step.RunID, step.StepID, step.Status, step.Commit,
-	)
-	if err != nil {
-		return fmt.Errorf("save step: %w", err)
-	}
-	return nil
-}
-
-// ListSteps returns all step records for a run.
-func (s *SQLiteStore) ListSteps(runID string) ([]domain.StepRecord, error) {
-	rows, err := s.db.Query(`SELECT run_id, step_id, status, commit_sha FROM steps WHERE run_id = ? ORDER BY step_id`, runID)
-	if err != nil {
-		return nil, fmt.Errorf("list steps: %w", err)
-	}
-	defer rows.Close()
-
-	var steps []domain.StepRecord
-	for rows.Next() {
-		var step domain.StepRecord
-		if err := rows.Scan(&step.RunID, &step.StepID, &step.Status, &step.Commit); err != nil {
-			return nil, fmt.Errorf("scan step: %w", err)
-		}
-		steps = append(steps, step)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate steps: %w", err)
-	}
-	return steps, nil
-}
-
-// ReconcileCommittedSteps marks committing steps as committed when git history has the matching commit.
-func (s *SQLiteStore) ReconcileCommittedSteps(runID string, commits []domain.CommitStep) error {
-	for _, commit := range commits {
-		if commit.StepID == "" || commit.Commit == "" {
-			return fmt.Errorf("commit step requires step id and commit")
-		}
-		_, err := s.db.Exec(
-			`UPDATE steps SET status = ? WHERE run_id = ? AND step_id = ? AND commit_sha = ?`,
-			domain.StepCommitted, runID, commit.StepID, commit.Commit,
-		)
-		if err != nil {
-			return fmt.Errorf("reconcile step %s: %w", commit.StepID, err)
-		}
-	}
-	return nil
 }

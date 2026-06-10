@@ -59,14 +59,8 @@ func (w WorktreeExecutor) Execute(ctx context.Context, runID string, specID stri
 		return result, err
 	}
 
-	definition, err := orchestration.LoadSpecKitLane(w.root(), spec, worktree)
-	if err != nil {
-		result.Error = err.Error()
-		return result, fmt.Errorf("load spec kit lane: %w", err)
-	}
-
 	runner := w.runner(runID, worktree)
-	flowResult, err := runner.Execute(ctx, definition)
+	_, flowResult, err := orchestration.ResumeSpecKitLane(ctx, w.root(), runID, spec, worktree, runner)
 	result.CompletedAt = time.Now().UTC()
 	if err != nil {
 		result.Error = err.Error()
@@ -110,6 +104,11 @@ func (w WorktreeExecutor) Status(_ context.Context, runID string, specID string,
 
 func (w WorktreeExecutor) provisionWorktree(ctx context.Context, runID string, spec domain.SpecRef, request domain.ExecutionRequest) (orchestration.SpecWorktree, error) {
 	if w.Git == nil || strings.TrimSpace(request.IncrementBranch) == "" {
+		return w.buildWorktree(runID, spec, request), nil
+	}
+	// Reuse an existing worktree on resume instead of recreating it; git worktree
+	// add fails if the path already exists, and the lane resumes from artifact truth.
+	if worktreeHasGit(w.resolveWorktreePath(runID, spec.ID)) {
 		return w.buildWorktree(runID, spec, request), nil
 	}
 	manager := orchestration.WorktreeManager{Git: w.Git, WorktreeRoot: w.worktreeRoot()}

@@ -2,10 +2,7 @@ package orchestration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/bocacorazon/dft/internal/domain"
 	"github.com/bocacorazon/dft/internal/flow"
@@ -20,23 +17,6 @@ type SpecKitResumeDecision struct {
 	StepIndex            int                `json:"step_index,omitempty"`
 	ResumeRecommendation string             `json:"resume_recommendation,omitempty"`
 	Completed            bool               `json:"completed,omitempty"`
-}
-
-// LoadSpecKitLaneJournal reads the durable journal for one spec lane run.
-func LoadSpecKitLaneJournal(root string, runID string, specID string) (SpecKitLaneJournal, error) {
-	path := filepath.Join(root, ".dft", "runs", runID, "specs", specID, "lane-journal.json")
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return SpecKitLaneJournal{}, fmt.Errorf("read lane journal: %w", err)
-	}
-	var journal SpecKitLaneJournal
-	if err := json.Unmarshal(content, &journal); err != nil {
-		return SpecKitLaneJournal{}, fmt.Errorf("parse lane journal: %w", err)
-	}
-	if journal.SpecID == "" {
-		journal.SpecID = specID
-	}
-	return journal, nil
 }
 
 // DecideSpecKitLaneResume chooses the next stage from artifact truth rather than the journal.
