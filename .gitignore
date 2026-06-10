@@ -26,5 +26,6 @@ Thumbs.db
 # - .dft/templates/
 # - .dft/schemas/
 
-
 .obsidian/
+bin/dft
+.obsidian/workspace.json
