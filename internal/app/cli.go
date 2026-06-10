@@ -33,6 +33,7 @@ Commands:
   submit        Execute a WBS DAG by dispatching frozen spec flows
   status    Show current or historical run status
   inspect   Inspect run artifacts and step output
+  stats     Show per-agent execution stats for a run (duration, tokens, errors)
   cancel    Cancel a running job
   resume    Resume an interrupted job
   init      Provision dft assets in a target repository
@@ -71,6 +72,9 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 			return 2
 		}
 		return printInspectV2(args[1], stdout, stderr)
+	}
+	if command == "stats" {
+		return runStats(args[1:], stdout, stderr)
 	}
 	if command == "cancel" {
 		return updateRunStatusV2(args[1:], domain.RunCancelled, stdout, stderr)

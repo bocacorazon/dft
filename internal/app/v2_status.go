@@ -169,6 +169,11 @@ func printInspectV2(runID string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprint(stdout, string(content))
 	}
 
+	if records, err := loadAgentCalls(runID); err == nil && len(records) > 0 {
+		fmt.Fprintf(stdout, "\n--- Agent Stats ---\n")
+		printAgentStats(stdout, records)
+	}
+
 	return 0
 }
 

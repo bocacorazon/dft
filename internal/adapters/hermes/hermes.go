@@ -3,6 +3,7 @@ package hermes
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -75,14 +76,34 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	start := time.Now()
 	err = cmd.Run()
+	usage := ports.AgentUsage{
+		Model:      request.Model,
+		DurationMs: time.Since(start).Milliseconds(),
+		ExitCode:   exitCodeFromError(err),
+	}
 	if err != nil {
-		return ports.AgentResponse{}, fmt.Errorf("hermes agent %q failed: %w: %s", request.AgentName, err, stderr.String())
+		return ports.AgentResponse{Usage: usage}, fmt.Errorf("hermes agent %q failed: %w: %s", request.AgentName, err, stderr.String())
 	}
 
 	return ports.AgentResponse{
-		Raw: strings.TrimSpace(stdout.String()),
+		Raw:   strings.TrimSpace(stdout.String()),
+		Usage: usage,
 	}, nil
+}
+
+// exitCodeFromError extracts the process exit code from a command error,
+// returning 0 on success and -1 when the code is unavailable.
+func exitCodeFromError(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
 }
 
 func (a Adapter) DispatchCommand(ctx context.Context, request ports.CommandRequest) (ports.CommandResponse, error) {

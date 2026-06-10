@@ -357,6 +357,35 @@ all green; `gofmt -l internal/ cmd/` clean; both binaries rebuilt; `dft schema` 
 6. Fix transcript overwrite: key copilot transcripts by run/step/attempt, not agent name
    (`copilot.go:182-206`).
 
+### W4 status — COMPLETE
+
+- **Port extended.** `ports.AgentResponse` now carries `Usage ports.AgentUsage`
+  (`Model, InputTokens, OutputTokens, DurationMs, ExitCode`). `ports.AgentRequest` gained
+  `StepID` and `Attempt` so the runtime context flows to adapters and observability records.
+- **Adapters capture timing + exit code.** copilot and hermes `Invoke` wrap `cmd.Run` with a
+  monotonic timer and populate `Usage{Model, DurationMs, ExitCode}` on both the success and
+  error returns (a shared `exitCodeFromError` reads `*exec.ExitError`). Token counts are left
+  zero (null) — neither runtime exposes them cheaply without changing the output envelope and
+  breaking strict JSON parsing, so this stays best-effort/extensible per the design.
+- **Per-attempt JSONL.** The flow runner records every agent attempt to
+  `.dft/runs/<run>/agent-calls.jsonl` (`internal/flow/agent_observability.go`,
+  `AgentCallRecord` + `invokeAgentObserved`). The runner owns `RunID/StepID/AgentName/Attempt`
+  and wall-clock duration (fallback when the adapter reports none); the SQLite `agent_calls`
+  table was intentionally skipped (JSONL is the single source of truth, keeping the runner
+  free of a DB dependency — the plan marked the table optional).
+- **`dft stats <run-id>`** aggregates the JSONL per agent (calls, duration, tokens, errors,
+  plus a TOTAL row) and the same summary is folded into `dft inspect`
+  (`internal/app/stats_command.go`, `v2_status.go`); `stats` is registered in the CLI router
+  and help text.
+- **Transcript overwrite fixed.** copilot transcripts are now keyed by
+  `<step-id>/attempt-<n>` (run id is already in `TranscriptDir`), so reusing one agent across
+  multiple steps in a run no longer clobbers a shared agent-name directory.
+
+Tests: `TestRunnerRecordsAgentCallObservability` (runner writes the JSONL with model/attempt);
+`aggregateAgentStats`/`printAgentStats` unit tests; copilot adapter tests updated to the new
+transcript layout and asserting captured exit codes. Full suite, vet, gofmt all clean; both
+binaries rebuilt; `dft stats` verified end-to-end.
+
 ## W5 — Tighten verification checks
 
 1. Strengthen `concreteMarkdownFile` / `looksTemplated` with structural checks (required

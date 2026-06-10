@@ -45,6 +45,8 @@ printf 'warn\n' >&2
 		AgentName: "dft-intake.agent.md",
 		Prompt:    "Normalize increment",
 		RunID:     "run-123",
+		StepID:    "intent",
+		Attempt:   1,
 	})
 
 	if err != nil {
@@ -53,12 +55,16 @@ printf 'warn\n' >&2
 	if !strings.Contains(response.Raw, `"ok":true`) {
 		t.Fatalf("raw response = %q, want fake JSON", response.Raw)
 	}
+	if response.Usage.ExitCode != 0 {
+		t.Fatalf("usage exit code = %d, want 0", response.Usage.ExitCode)
+	}
+	transcriptStep := filepath.Join(root, "transcripts", "intent", "attempt-1")
 	for _, name := range []string{"stdout.txt", "stderr.txt", "prompt.md", "argv.json"} {
-		if _, err := os.Stat(filepath.Join(root, "transcripts", "dft-intake.agent.md", name)); err != nil {
+		if _, err := os.Stat(filepath.Join(transcriptStep, name)); err != nil {
 			t.Fatalf("expected transcript %s: %v", name, err)
 		}
 	}
-	rawArgv, err := os.ReadFile(filepath.Join(root, "transcripts", "dft-intake.agent.md", "argv.json"))
+	rawArgv, err := os.ReadFile(filepath.Join(transcriptStep, "argv.json"))
 	if err != nil {
 		t.Fatalf("read argv transcript: %v", err)
 	}
@@ -85,10 +91,10 @@ func TestAdapterAllowsToolsOnlyWhenRequested(t *testing.T) {
 	}
 	adapter := Adapter{Binary: binary, Cwd: root, TranscriptDir: filepath.Join(root, "transcripts"), Timeout: time.Second}
 
-	if _, err := adapter.Invoke(context.Background(), ports.AgentRequest{AgentName: "speckit.implement.agent.md", Prompt: "Implement", RunID: "run-123", AllowTools: true}); err != nil {
+	if _, err := adapter.Invoke(context.Background(), ports.AgentRequest{AgentName: "speckit.implement.agent.md", Prompt: "Implement", RunID: "run-123", StepID: "implement", Attempt: 1, AllowTools: true}); err != nil {
 		t.Fatalf("Invoke returned error: %v", err)
 	}
-	rawArgv, err := os.ReadFile(filepath.Join(root, "transcripts", "speckit.implement.agent.md", "argv.json"))
+	rawArgv, err := os.ReadFile(filepath.Join(root, "transcripts", "implement", "attempt-1", "argv.json"))
 	if err != nil {
 		t.Fatalf("read argv transcript: %v", err)
 	}
@@ -112,13 +118,16 @@ func TestAdapterReturnsContextForNonZeroExit(t *testing.T) {
 	}
 
 	adapter := Adapter{Binary: binary, Cwd: root, Timeout: time.Second}
-	_, err := adapter.Invoke(context.Background(), ports.AgentRequest{AgentName: "dft-intake.agent.md", Prompt: "x", RunID: "run-123"})
+	response, err := adapter.Invoke(context.Background(), ports.AgentRequest{AgentName: "dft-intake.agent.md", Prompt: "x", RunID: "run-123"})
 
 	if err == nil {
 		t.Fatal("Invoke returned nil error, want non-zero exit error")
 	}
 	if !strings.Contains(err.Error(), "bad news") {
 		t.Fatalf("error = %v, want stderr context", err)
+	}
+	if response.Usage.ExitCode != 7 {
+		t.Fatalf("usage exit code = %d, want 7", response.Usage.ExitCode)
 	}
 }
 

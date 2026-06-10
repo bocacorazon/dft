@@ -54,6 +54,51 @@ func TestRunnerExecutesAgentStepAndWritesAuditArtifacts(t *testing.T) {
 	}
 }
 
+func TestRunnerRecordsAgentCallObservability(t *testing.T) {
+	root := t.TempDir()
+	runner := Runner{
+		Agent:        agentstub.Adapter{},
+		ArtifactRoot: root,
+		RunID:        "run-obs",
+	}
+
+	if _, err := runner.Execute(context.Background(), Definition{
+		Steps: []Step{{
+			ID:        "intake",
+			Type:      StepAgent,
+			AgentName: "dft-intake.agent.md",
+			Prompt:    "Normalize increment",
+			Increment: "Build intake loop",
+			Model:     "gpt-5-mini",
+		}},
+	}); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	path := filepath.Join(root, ".dft", "runs", "run-obs", "agent-calls.jsonl")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read agent-calls.jsonl: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("agent call records = %d, want 1\n%s", len(lines), content)
+	}
+	var record AgentCallRecord
+	if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
+		t.Fatalf("parse agent call record: %v", err)
+	}
+	if record.StepID != "intake" || record.AgentName != "dft-intake.agent.md" {
+		t.Fatalf("record = %+v, want intake/dft-intake.agent.md", record)
+	}
+	if record.Attempt != 1 {
+		t.Fatalf("attempt = %d, want 1", record.Attempt)
+	}
+	if record.Model != "gpt-5-mini" {
+		t.Fatalf("model = %q, want gpt-5-mini", record.Model)
+	}
+}
+
 func TestRunnerStopsOnFailedStep(t *testing.T) {
 	runner := Runner{RunID: "run-123", ArtifactRoot: t.TempDir()}
 

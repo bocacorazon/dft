@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -157,9 +158,15 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	start := time.Now()
 	err = cmd.Run()
+	usage := ports.AgentUsage{
+		Model:      request.Model,
+		DurationMs: time.Since(start).Milliseconds(),
+		ExitCode:   exitCodeFromError(err),
+	}
 	if writeErr := a.writeTranscript(request, args, stdout.Bytes(), stderr.Bytes()); writeErr != nil && err == nil {
-		return ports.AgentResponse{}, writeErr
+		return ports.AgentResponse{Usage: usage}, writeErr
 	}
 	if err != nil {
 		detail := strings.TrimSpace(stderr.String())
@@ -169,9 +176,22 @@ func (a Adapter) Invoke(ctx context.Context, request ports.AgentRequest) (ports.
 		if detail == "" {
 			detail = err.Error()
 		}
-		return ports.AgentResponse{}, fmt.Errorf("copilot agent %q failed: %w: %s", request.AgentName, err, detail)
+		return ports.AgentResponse{Usage: usage}, fmt.Errorf("copilot agent %q failed: %w: %s", request.AgentName, err, detail)
 	}
-	return ports.AgentResponse{Raw: stdout.String()}, nil
+	return ports.AgentResponse{Raw: stdout.String(), Usage: usage}, nil
+}
+
+// exitCodeFromError extracts the process exit code from a command error,
+// returning 0 on success and -1 when the code is unavailable.
+func exitCodeFromError(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
 }
 
 func copilotAgentName(name string) string {
@@ -179,11 +199,25 @@ func copilotAgentName(name string) string {
 	return strings.TrimSuffix(base, ".agent.md")
 }
 
+// transcriptKey isolates each step/attempt so reusing one agent across multiple
+// steps in a run no longer overwrites a shared agent-name directory.
+func transcriptKey(request ports.AgentRequest) string {
+	stepID := strings.TrimSpace(request.StepID)
+	if stepID == "" {
+		stepID = copilotAgentName(request.AgentName)
+	}
+	attempt := request.Attempt
+	if attempt < 1 {
+		attempt = 1
+	}
+	return filepath.Join(stepID, fmt.Sprintf("attempt-%d", attempt))
+}
+
 func (a Adapter) writeTranscript(request ports.AgentRequest, argv []string, stdout []byte, stderr []byte) error {
 	if a.TranscriptDir == "" {
 		return nil
 	}
-	dir := filepath.Join(a.TranscriptDir, request.AgentName)
+	dir := filepath.Join(a.TranscriptDir, transcriptKey(request))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create transcript directory: %w", err)
 	}

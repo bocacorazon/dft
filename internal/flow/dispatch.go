@@ -325,12 +325,14 @@ func (r Runner) executeAgentStep(ctx context.Context, step Step, stepDir string,
 		Prompt:     prompt,
 		Increment:  step.Increment,
 		RunID:      r.RunID,
+		StepID:     step.ID,
+		Attempt:    1,
 		Cwd:        step.Cwd,
 		Env:        step.Env,
 		Model:      step.Model,
 		AllowTools: step.AllowTools,
 	}
-	response, err := r.Agent.Invoke(ctx, request)
+	response, err := r.invokeAgentObserved(ctx, request)
 	if err != nil {
 		return fmt.Errorf("invoke agent step %q: %w", step.ID, err)
 	}
@@ -341,8 +343,9 @@ func (r Runner) executeAgentStep(ctx context.Context, step Step, stepDir string,
 		if err := agentjson.DecodeFirst(finalRaw, &parsed); err != nil {
 			firstRaw = finalRaw
 			retryRequest := request
+			retryRequest.Attempt = 2
 			retryRequest.Prompt = prompt + "\n\nIMPORTANT: Return ONLY a single valid JSON value matching the required schema. Do not include any prose, markdown, code fences, headings, or explanations."
-			retryResponse, retryErr := r.Agent.Invoke(ctx, retryRequest)
+			retryResponse, retryErr := r.invokeAgentObserved(ctx, retryRequest)
 			if retryErr != nil {
 				if writeErr := os.WriteFile(filepath.Join(stepDir, "stdout.txt"), []byte(finalRaw), 0o644); writeErr != nil {
 					return fmt.Errorf("write stdout artifact: %w", writeErr)
