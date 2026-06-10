@@ -14,7 +14,7 @@ type Agent interface {
 // RunResult captures the complete output of one pipeline execution.
 type RunResult struct {
 	RunID        string
-	Increment       string
+	Increment    string
 	DesignDir    string
 	DesignError  string
 	BuildOK      bool
@@ -28,9 +28,9 @@ type RunResult struct {
 
 // Harness is the top-level orchestrator.
 type Harness struct {
-	DftPath     string
-	Agent       Agent
-	Adapter     string // e.g. "copilot"
+	DftPath       string
+	Agent         Agent
+	Adapter       string // e.g. "copilot"
 	lastIncrement string // saved from Run() for use in retry loop
 }
 

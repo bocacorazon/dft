@@ -154,8 +154,8 @@ steps:
 	}
 	wbs := domain.WBS{
 		IncrementPackageID: "run-123",
-		BaseBranch:      "main",
-		IncrementBranch: "increment/run-123",
+		BaseBranch:         "main",
+		IncrementBranch:    "increment/run-123",
 		Specs: []domain.SpecRef{
 			{ID: "001-base", Description: "Base", AcceptanceCriteria: []string{"base"}},
 			{ID: "002-auth", Description: "Auth", DependsOn: []string{"001-base"}, AcceptanceCriteria: []string{"auth"}},

@@ -40,7 +40,7 @@ func (h *Harness) provisionRepos(runID, increment string) (remoteDir string, wor
 	if err := os.WriteFile(readme, []byte(content), 0644); err != nil {
 		return "", "", err
 	}
-	
+
 	// 4. Provision dft
 	if err := runIn(workspaceDir, h.DftPath, "init"); err != nil {
 		return "", "", err

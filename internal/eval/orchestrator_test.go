@@ -29,7 +29,7 @@ func TestOrchestratorRunsReadinessAuthorAndExecutor(t *testing.T) {
 		RunID:        "increment-1",
 	}).Run(context.Background(), AuthorInput{
 		IncrementPackage: authorInput().IncrementPackage,
-		WBS:           authorInput().WBS,
+		WBS:              authorInput().WBS,
 		SurfaceContract: domain.EvalSurfaceContract{
 			IncrementPackageID: "increment-1",
 			Surfaces: []domain.EvalSurface{{

@@ -423,4 +423,3 @@ func printDurableRunDetails(runID string, stdout io.Writer, stderr io.Writer) in
 	}
 	return 0
 }
-

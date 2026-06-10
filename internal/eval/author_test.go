@@ -16,7 +16,7 @@ func TestArtifactOnlyPlanAuthorWritesHiddenEvalPlan(t *testing.T) {
 	root := t.TempDir()
 	agent := captureAgent{plan: domain.EvalPlan{
 		IncrementPackageID: "increment-1",
-		RequirementIDs:  []string{"REQ-001"},
+		RequirementIDs:     []string{"REQ-001"},
 		Packs: []domain.BDDPack{{
 			ID:        "cli-pack",
 			SurfaceID: "cli",

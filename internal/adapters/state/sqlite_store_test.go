@@ -15,9 +15,9 @@ func TestSQLiteStorePersistsRunsQueueAndSteps(t *testing.T) {
 	defer store.Close()
 
 	run := domain.RunManifest{
-		ID:        "run-123",
-		Status:    domain.RunRunning,
-		Adapter:   "stub",
+		ID:           "run-123",
+		Status:       domain.RunRunning,
+		Adapter:      "stub",
 		RawIncrement: "Build durable state",
 	}
 	if err := store.Save(run); err != nil {

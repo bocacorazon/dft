@@ -211,7 +211,7 @@ func (d agentCommandDispatcher) DispatchCommand(ctx context.Context, request por
 	response, err := d.agent.Invoke(ctx, ports.AgentRequest{
 		AgentName:  request.Command + ".agent.md",
 		Prompt:     request.Input,
-		Increment:     request.Input,
+		Increment:  request.Input,
 		RunID:      request.RunID,
 		Cwd:        request.Cwd,
 		Env:        request.Env,

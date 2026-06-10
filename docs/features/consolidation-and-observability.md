@@ -269,6 +269,34 @@ out of W1a).
 3. Enforce Step "exactly-one-shape" validation at load in `flow/loader.go`.
 4. Pure refactor — no behavior change; tests stay green.
 
+### W2 status — COMPLETE
+
+`internal/flow/runner.go` went from 1703 lines to 546, split into cohesive same-package files:
+
+- **`function_handlers.go`** (496) — `functionHandler` type + `functionHandlers`
+  `map[string]functionHandler` registry; each of the 17 `function` subcommands is now its own
+  `func (r Runner) fnXxx(ctx, step, root, stepDir, result) error` method registered by name.
+  `executeFunctionStep` is now a 10-line dispatcher (lookup + call; unknown function → error).
+- **`dispatch.go`** (389) — `executeStepWithPolicy`, the `executeStep` type switch, the
+  per-type executors (`executeCommandStep`/`executeGateStep`/`executeFunctionStep`/
+  `executeAgentStep`) and `pauseError`/`isPauseError`.
+- **`verify.go`** (90) — `runVerification`, `executeVerifyStep`, `verifyStep`, `renderChecks`.
+- **`loop.go`** (92) — `executeLoopStep`, `loopExit`.
+- **`git_helpers.go`** (202) — the git/github plumbing the handlers call (`runGit`,
+  `defaultBranch`, `revParseTree`, branch existence checks, finding→issue formatters, etc.).
+- **`runner.go`** (546) — types + run loop (`Execute`/`Resume`/`ResumeFrom`/`executeStages`)
+  + rendering/expression/commit/io helpers.
+
+**Step exactly-one-shape validation** added in `flow/loader.go` (`validateStepShape`, walked
+recursively over top-level/stage/nested steps via `validateSteps`): a step may carry exactly
+one of command/agent/gate/tool/function/workflow/verify/loop, and the shape matching its
+resolved type must have its required payload. `verify:`/`checks:` attached to non-verify steps
+remain post-conditions, not a second shape. New tests cover a conflicting-shape rejection and a
+typed-but-empty rejection.
+
+Pure refactor: `go test ./...` green, `go vet` clean, both binaries rebuilt. Also gofmt-cleaned
+the struct-tag misalignment left by the W1 `Demand`→`Increment` rename across `internal/`+`cmd/`.
+
 ## W3 — Unify resume on artifact truth (depends on W1 Status hook)
 
 1. Make `Executor.Status` (artifact truth) the single completeness source.

@@ -23,7 +23,7 @@ func TestExecutorRunsCLIPackAndWritesEvaluationArtifact(t *testing.T) {
 
 	result, err := executor.Execute(context.Background(), "run-123", readyCLI(), domain.EvalPlan{
 		IncrementPackageID: "increment-1",
-		RequirementIDs:  []string{"REQ-001"},
+		RequirementIDs:     []string{"REQ-001"},
 		Packs: []domain.BDDPack{{
 			ID:        "cli-pack",
 			SurfaceID: "cli",

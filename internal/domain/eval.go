@@ -83,7 +83,7 @@ type ReadinessProbe struct {
 // EvalSurfaceContract is authored with the WBS during solution design.
 type EvalSurfaceContract struct {
 	IncrementPackageID string        `json:"increment_package_id"`
-	Surfaces        []EvalSurface `json:"surfaces"`
+	Surfaces           []EvalSurface `json:"surfaces"`
 }
 
 // ArtifactRef identifies a delivered artifact or endpoint.
@@ -97,7 +97,7 @@ type ArtifactRef struct {
 // ArtifactManifest lists artifacts collected after WBS completion.
 type ArtifactManifest struct {
 	IncrementPackageID string        `json:"increment_package_id"`
-	Artifacts       []ArtifactRef `json:"artifacts"`
+	Artifacts          []ArtifactRef `json:"artifacts"`
 }
 
 // SurfaceBinding connects one declared surface to one delivered artifact.
@@ -151,9 +151,9 @@ type BDDPack struct {
 // EvalPlan is the artifact-only BDD plan consumed by the eval executor.
 type EvalPlan struct {
 	IncrementPackageID string    `json:"increment_package_id"`
-	RequirementIDs  []string  `json:"requirement_ids,omitempty"`
-	Packs           []BDDPack `json:"packs,omitempty"`
-	Checks          []Check   `json:"checks,omitempty"`
+	RequirementIDs     []string  `json:"requirement_ids,omitempty"`
+	Packs              []BDDPack `json:"packs,omitempty"`
+	Checks             []Check   `json:"checks,omitempty"`
 }
 
 // PackExecution records one pack execution result.

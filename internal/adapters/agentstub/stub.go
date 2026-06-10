@@ -67,7 +67,7 @@ func (Adapter) Invoke(_ context.Context, request ports.AgentRequest) (ports.Agen
 		if strings.Contains(request.Prompt, "artifact-only BDD eval plan") {
 			return marshal(domain.EvalPlan{
 				IncrementPackageID: request.RunID,
-				RequirementIDs:  []string{"REQ-STUB"},
+				RequirementIDs:     []string{"REQ-STUB"},
 				Packs: []domain.BDDPack{{
 					ID:         "stub-file-pack",
 					SurfaceID:  "stub-design-artifacts",

@@ -13,7 +13,7 @@ import (
 
 // AuthorInput is the source-blind context allowed for eval-plan authoring.
 type AuthorInput struct {
-	IncrementPackage    domain.IncrementPackage       `json:"increment_package"`
+	IncrementPackage domain.IncrementPackage    `json:"increment_package"`
 	WBS              domain.WBS                 `json:"wbs"`
 	SurfaceContract  domain.EvalSurfaceContract `json:"surface_contract"`
 	ArtifactManifest domain.ArtifactManifest    `json:"artifact_manifest"`
@@ -57,7 +57,7 @@ func (a ArtifactOnlyPlanAuthor) Author(ctx context.Context, input AuthorInput) (
 		Prompt: "Author a hidden, artifact-only BDD eval plan from this source-blind context. " +
 			"Use only declared surfaces and artifacts; do not ask for or infer implementation source.\n\n" + string(promptBody),
 		Increment: input.IncrementPackage.RawIncrement,
-		RunID:  a.RunID,
+		RunID:     a.RunID,
 	})
 	if err != nil {
 		return domain.EvalPlan{}, fmt.Errorf("invoke eval plan author: %w", err)

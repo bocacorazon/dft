@@ -6,7 +6,7 @@ import "context"
 type AgentRequest struct {
 	AgentName  string
 	Prompt     string
-	Increment     string
+	Increment  string
 	RunID      string
 	Cwd        string
 	Env        map[string]string

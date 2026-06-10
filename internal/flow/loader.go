@@ -3,6 +3,7 @@ package flow
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/bocacorazon/dft/internal/domain"
 	"gopkg.in/yaml.v3"
@@ -47,7 +48,7 @@ type definitionStep struct {
 	OutputMode    AgentOutputMode   `yaml:"output_mode"`
 	AllowTools    bool              `yaml:"allow_tools"`
 	Prompt        string            `yaml:"prompt"`
-	Increment        string            `yaml:"increment"`
+	Increment     string            `yaml:"increment"`
 	Cwd           string            `yaml:"cwd"`
 	Env           map[string]string `yaml:"env"`
 	Tool          []string          `yaml:"tool"`
@@ -199,7 +200,7 @@ func normalizeStep(step definitionStep) (Step, error) {
 		OutputMode:    step.OutputMode,
 		AllowTools:    step.AllowTools,
 		Prompt:        step.Prompt,
-		Increment:        step.Increment,
+		Increment:     step.Increment,
 		Cwd:           step.Cwd,
 		Env:           step.Env,
 		Command:       step.Tool,
@@ -267,9 +268,110 @@ func validateDefinition(definition Definition) error {
 	if definition.MaxSpecParallelism < 0 {
 		return fmt.Errorf("max_spec_parallelism cannot be negative")
 	}
-	for _, step := range definition.Steps {
+	if err := validateSteps(definition.Steps); err != nil {
+		return err
+	}
+	for _, stage := range definition.Stages {
+		if err := validateSteps(stage.Setup); err != nil {
+			return err
+		}
+		if err := validateSteps(stage.Steps); err != nil {
+			return err
+		}
+		if err := validateSteps(stage.After); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSteps(steps []Step) error {
+	for _, step := range steps {
 		if step.MaxIterations < 0 {
 			return fmt.Errorf("step %q max_iterations cannot be negative", step.ID)
+		}
+		if err := validateStepShape(step); err != nil {
+			return err
+		}
+		if err := validateSteps(step.Setup); err != nil {
+			return err
+		}
+		if err := validateSteps(step.Steps); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateStepShape enforces that a step carries exactly one executable shape
+// (command/agent/gate/tool/function/workflow/verify/loop) and that the shape
+// matching its resolved type has the payload it needs. `verify:`/`checks:`
+// blocks attached to non-verify steps are post-conditions, not a second shape.
+func validateStepShape(step Step) error {
+	var shapes []string
+	if step.CommandName != "" {
+		shapes = append(shapes, "command")
+	}
+	if len(step.Command) > 0 {
+		shapes = append(shapes, "tool")
+	}
+	if step.AgentName != "" {
+		shapes = append(shapes, "agent")
+	}
+	if step.Function != "" {
+		shapes = append(shapes, "function")
+	}
+	if step.Workflow != "" {
+		shapes = append(shapes, "workflow")
+	}
+	if step.Message != "" {
+		shapes = append(shapes, "gate")
+	}
+	if step.Type == StepVerify && (len(step.Verify) > 0 || len(step.Checks) > 0) {
+		shapes = append(shapes, "verify")
+	}
+	if step.Type == StepLoop {
+		shapes = append(shapes, "loop")
+	}
+	if len(shapes) > 1 {
+		return fmt.Errorf("step %q has conflicting shapes (%s); exactly one of command/agent/gate/tool/function/workflow/verify/loop is allowed", step.ID, strings.Join(shapes, ", "))
+	}
+
+	switch step.Type {
+	case StepCommand:
+		if step.CommandName == "" {
+			return fmt.Errorf("command step %q requires command_name", step.ID)
+		}
+	case StepTool:
+		if len(step.Command) == 0 {
+			return fmt.Errorf("tool step %q requires command", step.ID)
+		}
+	case StepAgent:
+		if step.AgentName == "" {
+			return fmt.Errorf("agent step %q requires agent_name", step.ID)
+		}
+	case StepFunction:
+		if step.Function == "" {
+			return fmt.Errorf("function step %q requires function", step.ID)
+		}
+	case StepGate:
+		if step.Message == "" {
+			return fmt.Errorf("gate step %q requires message", step.ID)
+		}
+	case StepWorkflow:
+		if step.Workflow == "" && step.Args["path"] == "" {
+			return fmt.Errorf("workflow step %q requires a workflow path", step.ID)
+		}
+	case StepVerify:
+		if len(step.Verify) == 0 && len(step.Checks) == 0 {
+			return fmt.Errorf("verify step %q requires checks", step.ID)
+		}
+	case StepLoop:
+		if step.MaxIterations <= 0 {
+			return fmt.Errorf("loop step %q requires max_iterations", step.ID)
+		}
+		if len(step.Steps) == 0 {
+			return fmt.Errorf("loop step %q requires steps", step.ID)
 		}
 	}
 	return nil

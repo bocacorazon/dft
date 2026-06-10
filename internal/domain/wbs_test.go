@@ -49,8 +49,8 @@ func TestWBSValidateRejectsUnknownDependency(t *testing.T) {
 func TestWBSValidateAllowsKnownDependencies(t *testing.T) {
 	wbs := WBS{
 		IncrementPackageID: "run-123",
-		BaseBranch:      "main",
-		IncrementBranch: "increment/run-123",
+		BaseBranch:         "main",
+		IncrementBranch:    "increment/run-123",
 		Specs: []SpecRef{
 			{ID: "001-base", Description: "Base", AcceptanceCriteria: []string{"base"}},
 			{ID: "002-auth", Description: "Auth", DependsOn: []string{"001-base"}, AcceptanceCriteria: []string{"auth"}},
@@ -64,7 +64,7 @@ func TestWBSValidateAllowsKnownDependencies(t *testing.T) {
 func TestWBSValidateRejectsInvalidIncrementBranch(t *testing.T) {
 	wbs := WBS{
 		IncrementPackageID: "run-123",
-		IncrementBranch: "bad branch",
+		IncrementBranch:    "bad branch",
 		Specs: []SpecRef{{
 			ID:                 "001-auth",
 			Description:        "Build auth",

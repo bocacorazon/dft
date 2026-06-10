@@ -30,7 +30,7 @@ func TestRunnerExecutesAgentStepAndWritesAuditArtifacts(t *testing.T) {
 			Type:      StepAgent,
 			AgentName: "dft-intake.agent.md",
 			Prompt:    "Normalize increment",
-			Increment:    "Build intake loop",
+			Increment: "Build intake loop",
 		}},
 	})
 
@@ -90,7 +90,7 @@ func TestRunnerAttachesProjectContextAndWritesContextHashes(t *testing.T) {
 			Type:      StepAgent,
 			AgentName: "dft-intake.agent.md",
 			Prompt:    "Normalize increment",
-			Increment:    "Build intake loop",
+			Increment: "Build intake loop",
 		}},
 	})
 

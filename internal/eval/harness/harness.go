@@ -20,7 +20,7 @@ func (h *Harness) Run(ctx context.Context, increment string) (*RunResult, error)
 
 	result := &RunResult{
 		RunID:        runID,
-		Increment:       increment,
+		Increment:    increment,
 		WorkspaceDir: workspaceDir,
 		RemoteDir:    remoteDir,
 	}
@@ -58,7 +58,7 @@ type EvalJSON struct {
 
 func (h *Harness) runEval(runID, repoDir string) (string, string) {
 	out, _ := runInWithOutput(repoDir, h.DftPath, "evaluate", runID)
-	
+
 	evalFile := filepath.Join(repoDir, ".dft", "runs", runID, "eval", "evaluation.json")
 	data, err := os.ReadFile(evalFile)
 	if err != nil {

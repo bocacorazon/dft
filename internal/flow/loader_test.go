@@ -74,3 +74,26 @@ steps:
 		t.Fatalf("command input = %q", step.CommandInput)
 	}
 }
+
+func TestParseDefinitionRejectsConflictingStepShapes(t *testing.T) {
+	content := `schema_version: "1.0"
+steps:
+  - id: mixed
+    command: speckit.specify
+    function: set_var
+`
+	if _, err := ParseDefinition([]byte(content)); err == nil {
+		t.Fatal("ParseDefinition accepted a step with conflicting command and function shapes")
+	}
+}
+
+func TestParseDefinitionRejectsTypedStepMissingPayload(t *testing.T) {
+	content := `schema_version: "1.0"
+steps:
+  - id: empty-agent
+    type: agent
+`
+	if _, err := ParseDefinition([]byte(content)); err == nil {
+		t.Fatal("ParseDefinition accepted an agent step with no agent_name")
+	}
+}

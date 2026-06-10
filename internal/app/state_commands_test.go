@@ -43,7 +43,7 @@ func TestResumeCommandResumesSingleSpecLaneFromArtifacts(t *testing.T) {
 	}
 	wbsContent, err := json.MarshalIndent(domain.WBS{
 		IncrementPackageID: runID,
-		Specs:           []domain.SpecRef{spec},
+		Specs:              []domain.SpecRef{spec},
 	}, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal WBS: %v", err)
@@ -60,9 +60,9 @@ func TestResumeCommandResumesSingleSpecLaneFromArtifacts(t *testing.T) {
 	}
 	defer sqlStore.Close()
 	if err := saveRunState(state.JSONStore{RootDir: "."}, sqlStore, domain.RunManifest{
-		ID:        runID,
-		Status:    domain.RunFailed,
-		Adapter:   "stub",
+		ID:           runID,
+		Status:       domain.RunFailed,
+		Adapter:      "stub",
 		RawIncrement: spec.Description,
 	}); err != nil {
 		t.Fatalf("saveRunState returned error: %v", err)

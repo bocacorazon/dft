@@ -35,7 +35,7 @@ func TestEvalPlanValidateRequiresExecutableContent(t *testing.T) {
 func TestEvalPlanValidateAcceptsBDDAndChecks(t *testing.T) {
 	plan := EvalPlan{
 		IncrementPackageID: "increment-1",
-		RequirementIDs:  []string{"REQ-001"},
+		RequirementIDs:     []string{"REQ-001"},
 		Packs: []BDDPack{{
 			ID:        "cli-pack",
 			SurfaceID: "cli",

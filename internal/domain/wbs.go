@@ -19,9 +19,9 @@ type SpecRef struct {
 // WBS is the append-only work breakdown structure for an increment package.
 type WBS struct {
 	IncrementPackageID string    `json:"increment_package_id"`
-	BaseBranch      string    `json:"base_branch,omitempty"`
-	IncrementBranch string    `json:"increment_branch,omitempty"`
-	Specs           []SpecRef `json:"specs"`
+	BaseBranch         string    `json:"base_branch,omitempty"`
+	IncrementBranch    string    `json:"increment_branch,omitempty"`
+	Specs              []SpecRef `json:"specs"`
 }
 
 // Validate returns an error when the WBS cannot drive orchestration.
@@ -78,9 +78,9 @@ func (w WBS) Validate() error {
 
 // WBSAmendment captures Fix-Planner remediation after failed evaluation.
 type WBSAmendment struct {
-	IncrementPackageID     string          `json:"increment_package_id"`
-	Findings            []Finding       `json:"findings"`
-	RemediationSpecs    []SpecRef       `json:"remediation_specs,omitempty"`
+	IncrementPackageID     string             `json:"increment_package_id"`
+	Findings               []Finding          `json:"findings"`
+	RemediationSpecs       []SpecRef          `json:"remediation_specs,omitempty"`
 	ChildIncrementPackages []IncrementPackage `json:"child_increment_packages,omitempty"`
 }
 
